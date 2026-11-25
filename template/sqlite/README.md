@@ -87,9 +87,10 @@ or managed point-in-time recovery becomes a requirement. Follow the
 
 Run `make rename NAME=appname` once, before starting the app or creating its
 volumes. This renames the non-Go defaults; it does not change the Go module
-path or the display name. Fill in `config/deploy.yml`, export the secrets
-from an ignored `.env.production`, commit the configuration and run
-`make deploy`. If using GitHub Container Registry, add an
+path or the display name. Only after renaming, fill in `config/deploy.yml`
+and set the secrets in the ignored `.env.production`. Commit the deploy
+configuration, export the secrets, then run `make deploy-check`. Follow the
+deployment guide for the first deploy. If using GitHub Container Registry, add an
 `org.opencontainers.image.source` label pointing to the actual source
 repository to associate the image package with it.
 

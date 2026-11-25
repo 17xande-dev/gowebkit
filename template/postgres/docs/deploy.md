@@ -17,23 +17,14 @@ offer alongside the direct one): the migration lock is a session-level advisory
 lock and the driver caches prepared statements, and neither works through a
 transaction-mode pooler, where the lock would silently protect nothing.
 
-## Before you rely on it
-
-Run `kamal config` locally with your installed Kamal version: it renders
-`config/deploy.yml` without contacting a host, so it checks that the file parses
-and that the accessory is well-formed, nothing more. Treat its output as
-sensitive, because it can contain secret values. No check that ships with this
-template contacts a host or deploys: `kamal setup`, `accessory boot`, `deploy`,
-`rollback` and `app exec` are yours to try. Rehearse the first deploy, a
-rollback and a restore on a disposable host before you rely on any of them.
-
 ## First deploy
 
-1. Prepare one Docker host reachable by SSH. In `config/deploy.yml`, set the
-   SSH host (in `servers.web.hosts` and `accessories.postgres.host`; keep them
-   equal), the registry owner and image, and the public hostname. Set the
-   builder architecture to match the host (`amd64` is the default). Run
-   `make rename NAME=appname` first if you have not.
+1. Run `make rename NAME=appname` first, before filling in deployment values
+   or creating any volumes. Then prepare one Docker host reachable by SSH.
+   In `config/deploy.yml`, set the SSH host (in `servers.web.hosts` and
+   `accessories.postgres.host`; keep them equal), the registry owner and
+   image, and the public hostname. Set the builder architecture to match
+   the host (`amd64` is the default).
 2. Point DNS at the ingress. The default lets Kamal Proxy terminate HTTPS on
    the host. For a private tunnel that terminates public HTTPS and reaches
    the proxy over the Docker network, set `proxy.ssl: false` and
@@ -45,16 +36,17 @@ rollback and a restore on a disposable host before you rely on any of them.
    change, and every failed-sign-in log line would show the proxy's address.
    `forwarded` takes the leftmost `X-Forwarded-For` value on the first line,
    and is only safe when the sole ingress **replaces** every incoming copy of
-   that header. Kamal Proxy v0.10.2 with `proxy.ssl: true` does: it does not
-   forward the client's own forwarding headers and builds `X-Forwarded-For`
-   from the connecting client's address alone.
+   that header. Review of Kamal Proxy v0.10.2's source shows that with
+   `proxy.ssl: true` it does not forward the client's own forwarding headers
+   and builds `X-Forwarded-For` from the connecting client's address alone.
 
-   If something in front of the proxy **appends** instead of replacing (a
-   tunnel or CDN, or `proxy.ssl: false`, where Kamal Proxy forwards incoming
-   headers), a client can supply `X-Forwarded-For` and `forwarded` is
-   spoofable. Then use `cloudflare` only if Cloudflare is the sole ingress,
-   sets `CF-Connecting-IP`, and no alternate path lets a client supply it; or
-   keep `remote` and accept the shared bucket. After the first deploy, check
+   In one local Kamal 2.12.0 rehearsal of both variants, with `proxy.ssl: false`,
+   Kamal Proxy appended to `X-Forwarded-For` and the app with `forwarded`
+   logged the forged leftmost address. With `proxy.ssl: false` or any ingress
+   that appends rather than rebuilds the header, use `cloudflare` only if
+   Cloudflare is the sole ingress, sets `CF-Connecting-IP`, and no alternate
+   path lets a client supply it; or keep `remote` and accept the shared bucket.
+   After the first deploy, check
    the `client_ip` in a failed-sign-in log line. Revisit concurrent password
    work and the `512m` memory limit together if you change either.
 4. Create `.env.production` with permissions `0600`; it is gitignored. Generate
@@ -77,35 +69,64 @@ rollback and a restore on a disposable host before you rely on any of them.
    `.kamal/secrets` holds references to these names, never values. If your mail
    relay needs credentials, set the non-secret SMTP fields in `env.clear`, add
    `SMTP_PASSWORD` to `env.secret` and set it in `.env.production`.
-5. Commit the application and deploy configuration, load the secrets in a
-   trusted shell, and boot the database before the app:
+5. Once the app is renamed and the remaining values are filled in, commit
+   the application and deploy configuration. Then run the check before
+   contacting the host:
 
    ```sh
    set -a
    . ./.env.production
    set +a
-   kamal accessory boot postgres
-   kamal accessory details postgres      # wait until the status is healthy
-   make deploy
+   make deploy-check
    ```
 
-   `kamal setup` does the same in one command. The order matters: Kamal has no
-   "wait for the database" setting, and the app exits if it cannot reach the
-   database within ten seconds of starting, which fails the deploy's health check
-   and leaves the previous version serving. Boot the accessory first, wait for the
-   healthy status, then deploy; on a retry nothing is lost.
-
-   `make deploy-check` runs before `kamal deploy`. It rejects placeholders and
+   `make deploy-check` rejects placeholders (including those in comments) and
    uncommitted tracked changes (Kamal builds from HEAD), then runs `make gate`
    (which starts the Compose development database for the tests). Run
    `kamal config` locally to check the rendered configuration; treat its output
    as sensitive.
-6. Check that `https://app.example/healthz` on your configured host returns
+6. Boot the database accessory and wait until it is healthy before deploying
+   the app. Run `kamal accessory boot postgres`, then check
+   `kamal accessory details postgres` until the status is `healthy`. Only
+   then run `kamal deploy`.
+
+   `kamal setup` boots the accessory, but does not wait for it to be healthy.
+   It succeeded in the local rehearsal because the app's ten-second database
+   wait covered PostgreSQL startup. That margin was not measured on slow
+   disks. The app exits if it cannot reach the database within that wait.
+7. Check that `https://app.example/healthz` on your configured host returns
    `200 ok` (it pings the database), and `kamal app logs` for a successful
    startup and the first-admin setup token.
 
-Later `kamal deploy` runs replace only the app; the accessory keeps running. Use
+For later deploys, `make deploy` runs `make deploy-check` before `kamal deploy`.
+Only the app is replaced; the accessory keeps running. Use
 `kamal accessory logs postgres` for the database's own log.
+
+### Smoke-test sign-in
+
+Use the configured public scheme and host (`BASE_URL`). For a `curl` POST,
+retain the CSRF cookie and form token from the preceding GET and send an
+`Origin` matching `BASE_URL` and a `Referer` on that origin. For a disposable
+test over plain HTTP directly to the proxy, the origin headers still need to
+match the configured HTTPS origin; do not send real credentials over HTTP.
+With the deployed `COOKIE_SECURE: "true"` setting, CSRF treats requests as
+HTTPS even if the connection to the app is HTTP. The origin check falls back
+to `Referer` if `Origin` is missing; `curl` does not send these by default.
+
+## What was verified
+
+Kamal 2.12.0 was exercised once on a disposable local Docker-in-Docker host
+over SSH using the published v0.1.0 templates. For PostgreSQL, the run covered
+`make deploy-check`, `kamal setup`, `/healthz`, a setup token logged once,
+redeploy with no failed health polls, rollback, persistence of a marker row,
+`pg_dump` over SSH, and `-migrate-down` refusing to undo the baseline. A failed
+deploy kept the old version serving. With the accessory stopped, `/healthz`
+returned `503` and the deploy failed after 30 seconds.
+
+The rehearsal did not cover real DNS, TLS or Let's Encrypt, Kamal Proxy
+with `ssl: true`, a real remote host and registry, tunnel or CDN ingress,
+slow-disk PostgreSQL startup, or SMTP. Rehearse the first deploy, rollback
+and restore on a disposable host that matches your intended setup.
 
 ## Deploy a migration
 
@@ -155,3 +176,9 @@ schema newer than it knows.
 See [database](database.md) for dumps, the restore check and restores against
 the accessory. Recovering the whole host is a different job: the accessory's
 data volume is only as safe as the disk it is on.
+
+## Remove a deployment
+
+`kamal remove` removes the deployment and deletes the Kamal Proxy image.
+It intentionally keeps named data volumes, including `myapp-postgres-data`.
+Deleting a data volume is a separate, explicit step; verify your backups first.

@@ -8,9 +8,11 @@ Do not rename an existing deployment or its volume in place.
 
 ## First deploy
 
-1. Prepare one Docker host reachable by SSH. In `config/deploy.yml`, set the
-   SSH host, registry owner and image, and the public hostname. Set the builder
-   architecture to match the host (`amd64` is the default).
+1. Run `make rename NAME=appname` first, before filling in deployment values
+   or creating any volumes. Then prepare one Docker host reachable by SSH.
+   In `config/deploy.yml`, set the SSH host, registry owner and image, and
+   the public hostname. Set the builder architecture to match the host
+   (`amd64` is the default).
 2. Point DNS at the ingress. The default lets Kamal Proxy terminate HTTPS on
    the host. For a private tunnel that terminates public HTTPS and reaches
    the proxy over the Docker network, set `proxy.ssl: false` and
@@ -22,15 +24,14 @@ Do not rename an existing deployment or its volume in place.
    change, and every failed-sign-in log line would show the proxy's address.
    `forwarded` takes the leftmost `X-Forwarded-For` value on the first line,
    and is only safe when the sole ingress **replaces** every incoming copy of
-   that header. Kamal Proxy v0.10.2 with `proxy.ssl: true` does: its source
-   (`internal/cmd/deploy.go`, `internal/server/target.go`) does not forward the
-   client's own forwarding headers and builds `X-Forwarded-For` from the
-   connecting client's address alone.
+   that header. Review of Kamal Proxy v0.10.2's source shows that with
+   `proxy.ssl: true` it does not forward the client's own forwarding headers
+   and builds `X-Forwarded-For` from the connecting client's address alone.
 
-   If something in front of the proxy **appends** instead of replacing (a
-   tunnel or CDN, or `proxy.ssl: false`, where Kamal Proxy forwards incoming
-   headers), a client can supply `X-Forwarded-For` and `forwarded` is
-   spoofable. Then use the value that matches the path: `cloudflare` only if
+   In one local Kamal 2.12.0 rehearsal of both variants, with `proxy.ssl: false`,
+   Kamal Proxy appended to `X-Forwarded-For` and the app with `forwarded`
+   logged the forged leftmost address. With `proxy.ssl: false` or any ingress
+   that appends rather than rebuilds the header, use `cloudflare` only if
    Cloudflare is the sole ingress, sets `CF-Connecting-IP`, and no alternate
    path lets a client supply it; or keep `remote` and accept the shared
    bucket. An append chain from a controlled proxy network needs a trusted
@@ -46,26 +47,53 @@ Do not rename an existing deployment or its volume in place.
    secrets there. If your relay requires credentials, configure the non-secret
    SMTP fields in `env.clear`, add `SMTP_PASSWORD` to `env.secret`, and set it
    in `.env.production`.
-5. Commit the application and deploy configuration, then run the following
-   in a trusted shell:
+5. Once the app is renamed and the remaining values are filled in, commit
+   the application and deploy configuration. Then run the check before
+   contacting the host:
 
    ```sh
    set -a
    . ./.env.production
    set +a
-   make deploy
+   make deploy-check
    ```
 
-   `make deploy-check` runs before `kamal deploy`. It rejects placeholders and
+   `make deploy-check` rejects placeholders (including those in comments) and
    uncommitted tracked changes (Kamal builds from HEAD), then runs `make gate`.
    Run `kamal config` locally with your installed Kamal version: it renders
    the configuration without contacting a host, so it checks that the file
-   parses and nothing more. Treat its output as sensitive. No check that ships
-   with this template contacts a host or deploys. Rehearse the first deploy, a
-   rollback and a restore on a disposable host before using it in production.
+   parses and nothing more. Treat its output as sensitive. After the checks
+   pass, run `kamal setup` for the first deploy. For subsequent deploys,
+   `make deploy` runs `make deploy-check` before `kamal deploy`.
 6. Check that `https://app.example/healthz` on your configured host returns
-   `200 ok`. Check `kamal app logs` for a successful startup and, when
-   backups are enabled, that a daily backup exists.
+   `200 ok`. Check `kamal app logs` for a successful startup, the one-time
+   setup token on first boot and, when backups are enabled, that a daily
+   backup exists.
+
+### Smoke-test sign-in
+
+Use the configured public scheme and host (`BASE_URL`). For a `curl` POST,
+retain the CSRF cookie and form token from the preceding GET and send an
+`Origin` matching `BASE_URL` and a `Referer` on that origin. For a disposable
+test over plain HTTP directly to the proxy, the origin headers still need to
+match the configured HTTPS origin; do not send real credentials over HTTP.
+With the deployed `COOKIE_SECURE: "true"` setting, CSRF treats requests as
+HTTPS even if the connection to the app is HTTP. The origin check falls back
+to `Referer` if `Origin` is missing; `curl` does not send these by default.
+
+## What was verified
+
+Kamal 2.12.0 was exercised once on a disposable local Docker-in-Docker host
+over SSH using the published v0.1.0 templates. For SQLite, the run covered
+`make deploy-check`, `kamal setup`, `/healthz`, a setup token logged once,
+redeploy with no failed health polls, rollback, persistence of the named
+volume and database file inode, a backup file at boot, and `-migrate-down`
+refusing to undo the baseline. A failed deploy kept the old version serving.
+
+The rehearsal did not cover real DNS, TLS or Let's Encrypt, Kamal Proxy
+with `ssl: true`, a real remote host and registry, tunnel or CDN ingress,
+slow-disk PostgreSQL startup, or SMTP. Rehearse the first deploy, rollback
+and restore on a disposable host that matches your intended setup.
 
 ## Deploy a migration
 
@@ -115,3 +143,9 @@ restarted against a schema version newer than it knows.
    verify `/healthz` and application data before reopening traffic. If no
    schema migration was applied, skip the Down step. A failed container
    startup does not prove it failed before applying migrations.
+
+## Remove a deployment
+
+`kamal remove` removes the deployment and deletes the Kamal Proxy image.
+It intentionally keeps named data volumes, including `myapp-data`. Deleting
+a data volume is a separate, explicit step; verify your backups first.
