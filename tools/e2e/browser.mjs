@@ -4,7 +4,7 @@ import {
   openSync, readFileSync, readSync, rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 const attempts = 3;
@@ -85,7 +85,7 @@ export class Browser {
   #attempt;
 
   constructor({ binary, outDir, noSandbox = false, timeoutMs = 30_000 }) {
-    this.binary = binary;
+    this.binary = resolve(binary);
     this.outDir = outDir;
     this.noSandbox = noSandbox;
     this.timeoutMs = timeoutMs;
@@ -111,7 +111,7 @@ export class Browser {
   }
 
   async #launch(log) {
-    const profile = mkdtempSync(join(tmpdir(), "e2e-profile-"));
+    const profile = mkdtempSync(resolve(tmpdir(), "e2e-profile-"));
     const attempt = this.#attempt = { profile };
     // Let Chromium bind an ephemeral port itself. Reserving and releasing a
     // port before launch lets another process claim it in the meantime.
@@ -123,7 +123,13 @@ export class Browser {
     if (this.noSandbox) args.unshift("--no-sandbox");
     const fd = openSync(log, "w", 0o600);
     try {
-      attempt.child = spawn(this.binary, args, { stdio: ["ignore", "ignore", fd], detached: true });
+      // Chromium creates a singleton socket outside --user-data-dir unless its
+      // temp directory is scoped too. A short relative socket path avoids the
+      // Unix socket path limit when the caller's TMPDIR is long.
+      attempt.child = spawn(this.binary, args, {
+        cwd: profile, env: { ...process.env, TMPDIR: "." },
+        stdio: ["ignore", "ignore", fd], detached: true,
+      });
     } finally {
       closeSync(fd);
     }

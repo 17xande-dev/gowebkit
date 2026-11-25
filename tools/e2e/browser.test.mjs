@@ -19,7 +19,10 @@ function fixture(t, modes) {
   writeFileSync(join(outDir, "modes.json"), JSON.stringify(modes));
   t.after(() => {
     if (existsSync(trace)) {
-      for (const { profile } of launches()) rmSync(profile, { recursive: true, force: true });
+      for (const { profile, scratch } of launches()) {
+        rmSync(profile, { recursive: true, force: true });
+        rmSync(scratch, { force: true });
+      }
     }
     rmSync(outDir, { recursive: true, force: true });
   });
@@ -61,6 +64,7 @@ test("kills timed-out attempts and removes their profiles before retrying", asyn
     assert.equal(fake.launches().length, 2);
     assert.throws(() => process.kill(failed.pid, 0), { code: "ESRCH" });
     assert.ok(ready.previousProfilesGone, "timed-out attempt's profile was still present at retry");
+    assert.equal(existsSync(failed.scratch), false, "timed-out browser's scratch file survived");
   } finally {
     await browser.close();
   }

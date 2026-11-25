@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 const getArg = (name) => process.argv.find((arg) => arg.startsWith(`${name}=`))?.split("=")[1];
 const profile = getArg("--user-data-dir");
@@ -9,8 +10,11 @@ const portArg = getArg("--remote-debugging-port");
 const previous = existsSync(new URL("attempts.jsonl", import.meta.url))
   ? readFileSync(new URL("attempts.jsonl", import.meta.url), "utf8").trimEnd().split("\n").map(JSON.parse) : [];
 const n = previous.length + 1;
+const scratch = resolve(tmpdir(), `fake-browser-${process.pid}`);
+writeFileSync(scratch, "");
 appendFileSync(new URL("attempts.jsonl", import.meta.url), JSON.stringify({
-  profile, portArg, pid: process.pid, previousProfilesGone: previous.every((entry) => !existsSync(entry.profile)),
+  profile, portArg, pid: process.pid, scratch,
+  previousProfilesGone: previous.every((entry) => !existsSync(entry.profile)),
 }) + "\n");
 const modes = JSON.parse(readFileSync(new URL("modes.json", import.meta.url), "utf8"));
 
