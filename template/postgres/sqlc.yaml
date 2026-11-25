@@ -1,0 +1,19 @@
+# sqlc generates the typed query code in internal/db/gen from the SQL in
+# internal/db/queries, checked against the schema in internal/db/migrations.
+# It is a build-time tool: the Makefile pins its version, and go.mod keeps
+# stating only the dependencies of the binary. `make sqlc` regenerates;
+# `make sqlc-check` fails when the checked-in code is stale.
+version: "2"
+sql:
+  - engine: postgresql
+    schema: internal/db/migrations
+    queries: internal/db/queries
+    gen:
+      go:
+        package: gen
+        out: internal/db/gen
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        overrides:
+          - db_type: timestamptz
+            go_type: time.Time

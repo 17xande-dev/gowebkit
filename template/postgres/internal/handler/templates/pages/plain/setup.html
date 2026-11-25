@@ -1,0 +1,15 @@
+{{define "content"}}
+<section class="panel">
+  <h1>Set up account</h1>
+  <p>Create the first administrator account.</p>
+  {{with .Message}}<p role="alert">{{.}}</p>{{end}}
+  <form method="post" action="/setup">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <p><label>Setup token <input type="password" name="token" autocomplete="off" required></label></p>
+    <p><label>Name <input name="name" autocomplete="name" required></label></p>
+    <p><label>Email <input type="email" name="email" autocomplete="username" required></label></p>
+    <p><label>Password <input type="password" name="password" autocomplete="new-password" minlength="12" required></label></p>
+    <button type="submit">Create account</button>
+  </form>
+</section>
+{{end}}

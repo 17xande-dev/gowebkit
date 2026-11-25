@@ -1,0 +1,7 @@
+/myapp
+/data/
+/.env
+/.env.*
+!/.env.example
+/go.work
+/go.work.sum

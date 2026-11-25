@@ -1,0 +1,37 @@
+# Paths owned by one database variant. Everything not listed here is shared:
+# it is written in template/sqlite and copied to template/postgres by
+# tools/variantsync, with the module path rewritten. One path per line.
+
+# A line may be prefixed sqlite-only: or postgres-only: when just that variant
+# has the path; an unmarked path must exist in both, which variantsync checks.
+
+# Dependencies, migrations (including Postgres queries and generated code), and
+# database configuration and tests.
+go.mod
+go.sum
+postgres-only: sqlc.yaml
+internal/db/
+internal/dbtest/
+internal/config/db.go
+internal/config/db_test.go
+database_test.go # Also holds the engine-specific helpers the shared sign-in tests call (winRehashRace, corruptStoredHash).
+
+# Store implementations and raw database fixtures. The store contract is shared.
+internal/store/store.go
+internal/store/users.go
+internal/store/sessions.go
+internal/store/setup.go
+internal/store/backdate_test.go
+postgres-only: internal/store/postgres_test.go # Row-lock, digest-length and schema checks that only mean something on PostgreSQL.
+
+# Database services, deployment and operator guides.
+.env.example
+.github/workflows/ci.yaml
+.kamal/secrets
+Dockerfile
+README.md # Includes the database settings table and variant quickstart.
+compose.yaml
+config/deploy.yml
+db.mk
+docs/database.md
+docs/deploy.md

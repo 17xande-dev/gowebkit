@@ -1,0 +1,9 @@
+# Only build inputs belong in the context, not local data or credentials.
+*
+!go.mod
+!go.sum
+!*.go
+!internal/
+!internal/**
+**/.env*
+**/.git

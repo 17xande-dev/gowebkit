@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GOWORK: "off"
+
+jobs:
+  tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/go.mod
+          cache-dependency-path: tools/go.sum
+      - run: make tools-test
+      - run: go run ./variantsync -root .. -check
+        working-directory: tools
+      # The private pattern list is a repository secret, written to a temporary
+      # file for this step only. Without it (a fork, or the secret is unset)
+      # the run covers the generic rules and says so.
+      - run: |
+          if [ -n "$HYGIENE_PRIVATE_PATTERNS" ]; then
+            umask 077
+            printf '%s\n' "$HYGIENE_PRIVATE_PATTERNS" > "$RUNNER_TEMP/hygiene-private.txt"
+            export GOWEBKIT_HYGIENE_PATTERNS="$RUNNER_TEMP/hygiene-private.txt"
+          else
+            echo "::warning::HYGIENE_PRIVATE_PATTERNS is not set: generic rules only"
+          fi
+          make hygiene
+        env:
+          HYGIENE_PRIVATE_PATTERNS: ${{ secrets.HYGIENE_PRIVATE_PATTERNS }}
+
+  template:
+    runs-on: ubuntu-latest
+    env:
+      TEST_REQUIRE_DB: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [sqlite, postgres]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: template/${{ matrix.variant }}/go.mod
+          cache-dependency-path: template/${{ matrix.variant }}/go.sum
+      - run: make gate
+        working-directory: template/${{ matrix.variant }}
+      # Stop the source stack before the generated Postgres gate uses its port.
+      - if: ${{ always() && matrix.variant == 'postgres' }}
+        run: docker compose down -v
+        working-directory: template/postgres
+      - run: >-
+          go run ./gonewtest -root .. -rev "$GITHUB_SHA"
+          -template "template/${{ matrix.variant }}" -module example.com/app
+          -docker -- make gate
+        working-directory: tools
+
+  # Not runnable outside GitHub: written against the local run of the same
+  # script (tools/e2e/run.sh). Marking it required waits for a week of green runs.
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [sqlite, postgres]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/go.mod
+          cache-dependency-path: tools/go.sum
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      # The runner image's Chrome is used; the sandbox cannot start in every
+      # runner, so the script is told not to require it.
+      - run: bash tools/e2e/run.sh --variant "${{ matrix.variant }}" --rev "$GITHUB_SHA"
+        env:
+          E2E_OUT: ${{ runner.temp }}/e2e-screenshots
+          E2E_NO_SANDBOX: "1"
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-screenshots-${{ matrix.variant }}
+          path: ${{ runner.temp }}/e2e-screenshots
+          if-no-files-found: ignore

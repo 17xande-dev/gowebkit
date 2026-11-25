@@ -1,0 +1,3 @@
+# Both exact paths and directory prefixes are literal.
+internal/db/ # Database package.
+postgres-only: postgres-only.txt

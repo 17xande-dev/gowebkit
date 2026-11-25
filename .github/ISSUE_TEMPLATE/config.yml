@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: About issues and pull requests
+    url: https://github.com/17xande-dev/gowebkit#contributing
+    about: Issues and pull requests are not monitored. The templates are MIT-0; fork them freely.

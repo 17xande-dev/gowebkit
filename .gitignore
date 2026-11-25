@@ -1,0 +1,10 @@
+*.test
+*.out
+/bin/
+.env
+*.db
+*.db-shm
+*.db-wal
+# Local workspace file for developing across the modules (see docs/variants.md).
+/go.work
+/go.work.sum

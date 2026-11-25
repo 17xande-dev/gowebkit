@@ -1,0 +1,46 @@
+service: myapp
+image: OWNER/myapp
+
+servers:
+  web:
+    hosts:
+      - server.example
+    options:
+      memory: 512m
+
+proxy:
+  host: myapp.example.com
+  app_port: 8080
+  # With a private tunnel terminating HTTPS, use ssl: false and run.publish: false.
+  ssl: true
+  run:
+    version: v0.10.2
+    publish: true
+  healthcheck:
+    path: /healthz
+
+registry:
+  server: ghcr.io
+  username: OWNER
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+builder:
+  arch: amd64
+
+volumes:
+  - myapp-data:/data
+
+env:
+  clear:
+    BASE_URL: https://myapp.example.com
+    COOKIE_SECURE: "true"
+    # Behind Kamal Proxy the socket peer is always the proxy, so "remote" would
+    # put every client in one rate-limit bucket. With proxy.ssl: true the proxy
+    # rebuilds X-Forwarded-For from the real client address, which is what
+    # "forwarded" requires. If you set proxy.ssl: false (a tunnel or CDN in
+    # front), the proxy appends instead: switch to "cloudflare" when Cloudflare
+    # is the sole ingress, otherwise use "remote" and accept the shared bucket.
+    CLIENT_IP_SOURCE: forwarded
+    PASSWORD_CONCURRENCY: "2"
+  secret: []

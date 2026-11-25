@@ -1,0 +1,21 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>{{template "head" .}}</head>
+<body class="app-shell">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="/"><img src="{{asset "logo.svg"}}" width="32" height="32" alt=""> {{.SiteName}}</a>
+      <nav aria-label="Account">
+        {{if .IsAdmin}}<a href="/admin/users">Users</a>{{end}}
+        <a href="/account/password">Password</a>
+      </nav>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button type="submit">Sign out</button>
+      </form>
+    </div>
+  </header>
+  <main id="main" class="wrap">{{with .Notice}}<p role="status" class="notice">{{.}}</p>{{end}}{{template "content" .}}</main>
+</body>
+</html>{{end}}

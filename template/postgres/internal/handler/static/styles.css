@@ -1,0 +1,173 @@
+:root {
+  color-scheme: light dark;
+  --canvas: light-dark(#ecf1f2, #12191c);
+  --surface: light-dark(#fcfefe, #1b2529);
+  --ink: light-dark(#18282b, #f1f7f8);
+  --muted: light-dark(#425c62, #b4c8cc);
+  --line: light-dark(#c5d5d9, #3b5056);
+  --accent: light-dark(#075b68, #a2e7ee);
+  --on-accent: light-dark(#fff, #10282c);
+  --space-1: .5rem;
+  --space-2: 1rem;
+  --space-3: clamp(1.25rem, 4vw, 2.75rem);
+  --space-4: clamp(2.5rem, 9vw, 6rem);
+  --text: clamp(1rem, .96rem + .22vw, 1.125rem);
+  --display: clamp(2rem, 1.55rem + 2.5vw, 3.75rem);
+  --radius: 1rem;
+  --measure: 60ch;
+  --page: 68rem;
+  --font: system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-block-size: 100vh;
+  background: var(--canvas);
+  color: var(--ink);
+  font: var(--text)/1.55 var(--font);
+}
+
+a { color: var(--accent); }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.wrap {
+  inline-size: min(calc(100% - 2 * var(--space-2)), var(--page));
+  margin-inline: auto;
+}
+
+.site-header {
+  padding-block: var(--space-2);
+  background: var(--surface);
+  border-block-end: 1px solid var(--line);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--ink);
+  font-weight: 650;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+
+  & img { flex: none; }
+  &:hover { color: var(--accent); }
+}
+
+.skip-link {
+  position: absolute;
+  inset: var(--space-2) auto auto var(--space-2);
+  z-index: 1;
+  padding: var(--space-1) var(--space-2);
+  background: var(--surface);
+
+  &:not(:focus) { clip-path: inset(50%); }
+}
+
+.app-shell main, .plain-shell main { padding-block: var(--space-4); }
+.plain-shell .wrap { max-inline-size: 44rem; }
+
+.card {
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 .25rem 1rem color-mix(in oklab, var(--ink) 8%, transparent);
+  overflow-wrap: anywhere;
+
+  & > :last-child { margin-block-end: 0; }
+}
+
+.site-header .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+
+  & form { margin-inline-start: auto; }
+}
+
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+}
+
+.notice {
+  max-inline-size: none;
+  padding: var(--space-1) var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: calc(var(--radius) / 2);
+  color: var(--ink);
+}
+
+.card + .card { margin-block-start: var(--space-3); }
+
+/* A table that is wider than the screen scrolls inside this box. The card
+   breaks long words anywhere, which would otherwise squeeze every column until
+   the page stops overflowing and the text is one letter per line. */
+.table-scroll {
+  overflow-x: auto;
+  margin-block-end: var(--space-2);
+}
+
+.card table {
+  inline-size: 100%;
+  min-inline-size: 52rem; /* scroll rather than squeeze the columns */
+  border-collapse: collapse;
+  overflow-wrap: normal;
+}
+
+th, td {
+  padding: var(--space-1);
+  border-block-end: 1px solid var(--line);
+  text-align: start;
+  vertical-align: top;
+}
+
+h1 {
+  margin-block: 0 var(--space-2);
+  font-size: var(--display);
+  font-weight: 680;
+  line-height: 1.12;
+  letter-spacing: -.035em;
+  text-wrap: balance;
+}
+
+p {
+  max-inline-size: var(--measure);
+  margin-block: 0 var(--space-2);
+  color: var(--muted);
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-size: .8em;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.button {
+  display: inline-block;
+  padding: var(--space-1) var(--space-2);
+  border-radius: calc(var(--radius) / 2);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 620;
+  text-decoration: none;
+  transition: background-color 150ms ease;
+
+  &:hover { background: color-mix(in oklab, var(--accent) 89%, var(--on-accent)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button { transition: none; }
+}
