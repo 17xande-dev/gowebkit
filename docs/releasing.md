@@ -23,6 +23,9 @@ cd ../..
 in `template/postgres`. Pin the newest tag of a third-party module that is at
 least two weeks old.
 
+Goose v3.30.1 was 13 calendar days old when v0.1.0 was tagged; this bump
+aligns both variants on v3.30.1.
+
 The vendored htmx script follows the same rule, and it runs in every user's
 browser. Check `npm view htmx.org time --json` and pin the newest version that
 is at least 14 days old. Download the npm tarball, verify it against its
