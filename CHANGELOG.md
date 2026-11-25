@@ -3,23 +3,46 @@
 Each entry says what changed in the templates and how to port it into an
 existing app. Both templates are released together under one version.
 
-## Unreleased
+## v0.1.1 (2026-11-25)
 
-- CI removed; run `make check-all`.
-- Documented a local Kamal 2.12.0 rehearsal of both apps generated from the
-  published v0.1.0 modules. It covered `make deploy-check`, setup, `/healthz`,
-  the one-time setup token, redeploy with no failed health polls, rollback,
-  data persistence (SQLite volume and database file inode; PostgreSQL marker
-  row), backups (SQLite file at boot; `pg_dump` over SSH), baseline
-  `-migrate-down` refusal, and a failed deploy that kept the old version
-  serving. Stopping the PostgreSQL accessory returned `503` from `/healthz`
-  and caused the deploy to fail after 30 seconds. The rehearsal did not cover
-  real DNS, TLS or Let's Encrypt, Kamal Proxy with `ssl: true`, a real remote
-  host and registry, tunnel or CDN ingress, slow-disk PostgreSQL startup, or
-  SMTP. For existing apps, use the updated [SQLite](template/sqlite/docs/deploy.md)
-  or [PostgreSQL](template/postgres/docs/deploy.md) guide for first-deploy
-  ordering, proxy trust, sign-in smoke tests and volume retention. No code
-  changes are needed.
+A patch release: no change to the generated apps' behaviour, the documentation
+of the first deploy is fuller, and the generated apps no longer ship a hosted
+CI workflow.
+
+- **No hosted CI.** The generated apps no longer contain `.github/workflows/ci.yaml`;
+  the repository's own checks run locally with `make check-all` (everything,
+  including image builds and the headless browser run), `make check-all-fast`
+  (no Docker build or browser) and `make check-latest` (newest kit module tags
+  in a throwaway copy). To port this into an app generated from v0.1.0, delete
+  `.github/workflows/ci.yaml` if you prefer local checks; keeping it is fine.
+- **Goose aligned.** The PostgreSQL template now requires goose v3.30.1, the
+  version the SQLite template already used. Port: `go get
+  github.com/pressly/goose/v3@v3.30.1 && go mod tidy` in an app generated from
+  the PostgreSQL template.
+- **Deploy documentation.** Both templates document a local Kamal 2.12.0
+  rehearsal of both apps generated from the published v0.1.0 modules. It
+  covered `make deploy-check`, setup, `/healthz`, the one-time setup token,
+  redeploy with no failed health polls, rollback, data persistence (SQLite
+  volume and database file inode; PostgreSQL marker row), backups (SQLite file
+  at boot; `pg_dump` over SSH), baseline `-migrate-down` refusal, and a failed
+  deploy that kept the old version serving. Stopping the PostgreSQL accessory
+  returned `503` from `/healthz` and caused the deploy to fail after 30
+  seconds. With `proxy.ssl: false` the app logged a forged `X-Forwarded-For`
+  address when `CLIENT_IP_SOURCE` was `forwarded`: use `forwarded` only behind a
+  proxy that rebuilds the header. The rehearsal did not cover real DNS, TLS or
+  Let's Encrypt, Kamal Proxy with `ssl: true`, a real remote host and
+  registry, tunnel or CDN ingress, slow-disk PostgreSQL startup, or SMTP. For
+  existing apps, use the updated [SQLite](template/sqlite/docs/deploy.md) or
+  [PostgreSQL](template/postgres/docs/deploy.md) guide for first-deploy
+  ordering (`make rename`, then fill in values, then `make deploy-check`),
+  PostgreSQL readiness, proxy trust, sign-in smoke tests and volume retention.
+- **Dependencies.** modernc.org/sqlite is now v1.63.0 in the SQLite template and
+  pgx v5.13.0 in the PostgreSQL template. Both were under the project's
+  two-week minimum release age at this release; the maintainer fast-tracked
+  them for v0.1.1 (a one-time exception, the rule stands for later releases).
+  goose v3.30.1 was 13 days old; it was already part of v0.1.0. Port: `go get
+  modernc.org/sqlite@v1.63.0` (SQLite template) or `go get
+  github.com/jackc/pgx/v5@v5.13.0` (PostgreSQL template), then `go mod tidy`.
 
 ## v0.1.0 (2026-11-25)
 
