@@ -3,7 +3,7 @@
 Each entry says what changed in the templates and how to port it into an
 existing app. Both templates are released together under one version.
 
-## v0.1.0 (unreleased until the tags are pushed)
+## v0.1.0 (2026-11-25)
 
 The first release: two complete templates, `template/sqlite` (the default) and
 `template/postgres`.

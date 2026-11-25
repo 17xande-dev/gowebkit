@@ -4,9 +4,9 @@ Both templates are released together: the same commit gets the same version on
 each, as two tags. While the major version is 0, a breaking change to the
 generated layout is a minor bump.
 
-Status: the commands in steps 2 and 3 have been run in this repository. Steps
-6 and 7 (tags, and the check against the public module proxy) have not, because
-no release exists yet.
+Status: every step has been run once, for v0.1.0: the checks and generation in
+steps 2 and 3, then the tags, and `gonew` against the public module proxy for
+both templates, followed by `make gate` in each generated app.
 
 ## 1. Bump the shared modules
 

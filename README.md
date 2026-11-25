@@ -1,6 +1,6 @@
 # gowebkit
 
-**Status: v0.1.0, pre-release until the tags are pushed. Experimental: `gonew`
+**Status: v0.1.0. Experimental: `gonew`
 is experimental, and neither deployment has been exercised on a real Kamal host
 yet.**
 
