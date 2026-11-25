@@ -93,20 +93,23 @@ generated sqlite gate "${docker_build[@]}"
 generated postgres gate "${docker_build[@]}"
 
 if [[ $1 == check-all ]]; then
+	# Scope the browser's temporary files to this run, even when the
+	# caller chooses to keep the screenshots.
+	browser_work=$(mktemp -d)
+	trap 'rm -r -- "$browser_work"' EXIT
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
 	if [[ -n ${E2E_OUT-} ]]; then
 		mkdir -p -- "$E2E_OUT"
 		shots=$(cd -- "$E2E_OUT" && pwd)
 	else
-		shots=$(mktemp -d)
-		trap 'rm -r -- "$shots"' EXIT
-		trap 'exit 130' INT
-		trap 'exit 143' TERM
+		shots="$browser_work/screenshots"
 	fi
 	for variant in sqlite postgres; do
 		printf '\n==> Headless first-run check: %s\n' "$variant"
 		# The browser runner names its own stack with -p. Also isolate the
 		# outer gonewtest teardown, which would otherwise default to "app".
-		COMPOSE_PROJECT_NAME="$project-$variant-e2e" E2E_OUT="$shots/$variant" \
+		TMPDIR="$browser_work" COMPOSE_PROJECT_NAME="$project-$variant-e2e" E2E_OUT="$shots/$variant" \
 			bash tools/e2e/run.sh --variant "$variant" --rev "$rev"
 	done
 fi
