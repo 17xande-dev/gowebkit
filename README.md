@@ -88,14 +88,30 @@ make hygiene      # scans files, history, messages and identities for private ma
 `make tools-test` also installs the pinned `govulncheck` into your Go bin
 directory, as the templates' `make gate` does on first use.
 
-The two templates have their own gates (`make gate` in each directory; the
-PostgreSQL one starts its Compose database first). Run the gates locally before
-sharing changes.
+The two templates have their own local gates (`make gate` in each directory;
+the PostgreSQL one starts its Compose database first).
 
 ## Contributing
 
 Issues and pull requests are not monitored. The templates are MIT-0: fork them
 freely and change what you need.
+
+From the repository root:
+
+```sh
+make check-all-fast  # everyday check; no image builds or browser checks
+make check-all       # full local check before release
+```
+
+Both commands check the tools, run the hygiene scan and variant comparison,
+then run `make gate` in the source templates and in apps generated from
+`HEAD`. Commit template changes before checking what gets generated. Both
+commands need Docker with Compose v2 for the temporary PostgreSQL instances;
+they use free ports and remove the test instances. The full check also
+builds both app images and runs both first-run flows in headless Chromium.
+It needs Node 22 or later and Chromium or Chrome. See
+[Releasing](docs/releasing.md) for the private-list and screenshot options
+and the manual latest-module check.
 
 ## Licence
 

@@ -1,7 +1,8 @@
 # Repository tools
 
 This untagged Go module is separate from the downloadable templates. Run
-`make tools-test` and `make hygiene` from the repository root.
+`make check-all` or `make check-all-fast` from the repository root for the
+local checks, or `make tools-test` and `make hygiene` for just the tooling.
 
 - [Variant sync](variantsync/README.md) compares shared files or syncs them
   from SQLite to Postgres.

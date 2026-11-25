@@ -35,7 +35,7 @@ ones) and tests of behaviour. The differences are the ones the database forces:
 | | SQLite | PostgreSQL |
 | --- | --- | --- |
 | Database settings | `DB_PATH`, `BACKUP_DIR`, `BACKUP_KEEP` | `DATABASE_URL` or `DATABASE_URL_FILE` |
-| Queries | hand-written methods on `database/sql` | `sqlc`-generated code, checked in CI |
+| Queries | hand-written methods on `database/sql` | `sqlc`-generated code, checked by the local `make gate` |
 | Migrations | goose, run at startup under a lock file | goose, run under a PostgreSQL session lock |
 | Backups | the app writes a daily copy with `VACUUM INTO` | none in the app: `pg_dump` through Compose or Kamal |
 | Deployment | a named volume at `/data` | a Kamal accessory for the database |

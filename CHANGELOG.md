@@ -3,6 +3,10 @@
 Each entry says what changed in the templates and how to port it into an
 existing app. Both templates are released together under one version.
 
+## Unreleased
+
+- CI removed; run `make check-all`.
+
 ## v0.1.0 (2026-11-25)
 
 The first release: two complete templates, `template/sqlite` (the default) and
@@ -25,9 +29,9 @@ Each generated app contains:
   message (local Mailpit in Compose).
 - **Database.** SQLite: goose migrations under a lock, scheduled `VACUUM INTO`
   backups. PostgreSQL: goose under a session lock, `sqlc`-generated queries.
-- **Deployment and CI.** Dockerfile, Compose development stack, Kamal
-  configuration, a `make deploy-check` that refuses placeholders, and a CI
-  workflow that runs `make gate` (with a database service for PostgreSQL).
+- **Deployment and checks.** Dockerfile, Compose development stack, Kamal
+  configuration, a `make deploy-check` that refuses placeholders, and
+  `make gate` (with a database service for PostgreSQL).
 
 Repository tooling: variant sync, a generation test that runs the real `gonew`
 against a commit, a hygiene scan, and a headless-browser first-run check.

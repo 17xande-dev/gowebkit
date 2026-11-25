@@ -11,12 +11,12 @@ everything else identical.
 **it is written in `template/sqlite` and copied to `template/postgres`**, with
 the module path in Go imports rewritten, which is the same rewrite `gonew`
 makes. Never edit a shared file under `template/postgres`: the next sync
-overwrites it and CI fails until it does.
+overwrites it and the local comparison fails until it does.
 
 Typical variant-owned paths are `go.mod`, `internal/db/`, the store
 implementation, the database tests' helpers, `compose.yaml`, `Dockerfile`, the
-Kamal configuration, `.env.example`, the README, the database and deployment
-guides, and each variant's CI workflow.
+Kamal configuration, `.env.example`, the README, and the database and
+deployment guides.
 
 ## Making a change
 
@@ -31,10 +31,12 @@ guides, and each variant's CI workflow.
 
 ```sh
 (cd tools && GOWORK=off go run ./variantsync -root ..)         # sync
-(cd tools && GOWORK=off go run ./variantsync -root .. -check)  # what CI runs
+(cd tools && GOWORK=off go run ./variantsync -root .. -check)  # compare without writing
 ```
 
-Then run both gates:
+Then run `make check-all-fast` from the repository root. It compares the
+variants again and runs both source and generated gates (generation uses
+`HEAD`). To run only a source gate:
 
 ```sh
 (cd template/sqlite && make gate)

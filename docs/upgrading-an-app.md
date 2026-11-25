@@ -64,7 +64,7 @@ that variant). The command works outside any module.
     that proves in-flight requests finish and new connections are refused.
 12. **A gate that cannot pass by accident.** Format check that fails on
     unparseable files, vet, tests with the race detector and `-count=1`, the
-    skipped-test count printed, database tests required (not skipped) in CI,
+    skipped-test count printed, database tests required (not skipped) in the local gate,
     the vulnerability scan last, and a test that `.env.example` and the
     variables the code reads agree.
 13. **Random values where a test asserts text.** Fixed short strings hide

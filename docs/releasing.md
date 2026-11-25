@@ -4,9 +4,8 @@ Both templates are released together: the same commit gets the same version on
 each, as two tags. While the major version is 0, a breaking change to the
 generated layout is a minor bump.
 
-Status: every step has been run once, for v0.1.0: the checks and generation in
-steps 2 and 3, then the tags, and `gonew` against the public module proxy for
-both templates, followed by `make gate` in each generated app.
+For v0.1.0, both published templates were generated from the public module
+proxy and passed `make gate` in the generated apps.
 
 ## 1. Bump the shared modules
 
@@ -35,13 +34,20 @@ newer pin chosen in a hurry is not.
 
 ## 2. Check
 
+Commit the candidate first: the source gates read the worktree, but generation
+and browser checks read the committed templates at `HEAD`.
+
 ```sh
-make tools-test
-HYGIENE_REQUIRE_PRIVATE=1 make hygiene
-(cd template/sqlite && make gate)
-(cd template/postgres && TEST_REQUIRE_DB=1 make gate)
-(cd tools && GOWORK=off go run ./variantsync -root .. -check)
+make check-all
 ```
+
+It stops at the first failure. It checks the tooling, scans for private
+material, verifies variant sync, runs both source gates and both generated
+gates, builds both generated images, and runs both headless first-run checks.
+Docker with Compose v2 is required. PostgreSQL binds a free loopback port,
+runs with database tests required, and is torn down afterwards. The browser
+checks need Node 22 or later and Chromium or Chrome. For everyday work,
+`make check-all-fast` skips image builds and browser checks only.
 
 `make hygiene` scans the files and their names, every patch in history, every
 commit and tag message, branch and tag names, and the author, committer and
@@ -50,34 +56,26 @@ tagger identities. Fix anything it lists before going on, including in history.
 The public tool holds only generic rules. The project-specific list lives in a
 private file outside the repository (`~/.config/gowebkit/hygiene-private.txt`,
 or the path in `GOWEBKIT_HYGIENE_PATTERNS`; see
-[the tool's README](../tools/hygiene/README.md)). The maintainer runs
-`HYGIENE_REQUIRE_PRIVATE=1 make hygiene` before every push: with that variable
-a missing list is a failure, not a notice. CI reads the same list from the
-repository secret `HYGIENE_PRIVATE_PATTERNS` and warns in the log when the
-secret is absent (as it is for a fork).
+[the tool's README](../tools/hygiene/README.md)). The local checks require a
+nonempty list when the file exists or a path was configured; otherwise
+they say that only generic rules were scanned. The maintainer runs
+`HYGIENE_REQUIRE_PRIVATE=1 make hygiene` before every push so an absent
+list fails the check.
 
-## 3. Generate from the commit
+## 3. Review the browser screenshots
 
-Commit everything first: both tools read a commit, never the working tree.
+By default the full check removes its screenshots. To keep them, set
+`E2E_OUT` to a directory outside the worktree when running step 2:
 
 ```sh
-for v in sqlite postgres; do
-  (cd tools && GOWORK=off go run ./gonewtest -root .. -rev HEAD \
-    -template template/$v -module example.com/app -docker -- make gate)
-  bash tools/e2e/run.sh --variant $v --rev HEAD
-done
+E2E_OUT=/tmp/gowebkit-screenshots make check-all
 ```
 
-`gonewtest` needs Docker for `-docker`; the PostgreSQL gate starts its Compose
-database, so stop any other service using port 5432 first. The e2e runner needs
-Node 22 and Chromium or Chrome.
-
-Then look at the screenshots, which the runner writes to `E2E_OUT` (a new
-temporary directory unless you set it): open the phone (390 px) and desktop
-images of the users page and of at least two other pages, for both variants.
+In each of the `sqlite` and `postgres` subdirectories, open the phone (390 px)
+and desktop images of the users page and of at least two other pages.
 The run checks that nothing overflows and that table cells and short texts are
 not squeezed into columns of single letters, but only a person sees whether a
-page looks right. In CI the same images are the `e2e-screenshots-*` artefacts.
+page looks right.
 
 ## 4. Changelog
 
@@ -119,6 +117,11 @@ done
 Then run `make gate` in each result. If a command fails for a module that the
 tag should have made available, wait a few minutes before retrying.
 
-The weekly workflow `latest.yaml` runs both templates against the latest tags of
-the shared modules; a red run means the next module release breaks the template
-(bump or fix it), and it never changes the repository.
+## Check the latest kit modules manually
+
+Run `make check-latest` to generate both apps from `HEAD` into throwaway
+directories, update each app's kit modules to their latest tags, run
+`go mod tidy`, and run both gates with real database tests. It needs Docker
+with Compose v2 but does not build app images or run the browser checks. It
+never changes the repository or its pinned versions. A failure may indicate
+that a newer module release needs a template change before updating the pins.
