@@ -3,6 +3,7 @@ GOVULNCHECK_VERSION ?= v1.9.0
 .PHONY: tools-test hygiene check-all check-all-fast check-latest
 # Also installs govulncheck (pinned) into your Go bin directory, then runs it.
 tools-test:
+	node --test tools/e2e/browser.test.mjs
 	cd tools && GOWORK=off go vet ./...
 	cd tools && GOWORK=off go test -race -count=1 ./...
 	cd tools && GOWORK=off go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)

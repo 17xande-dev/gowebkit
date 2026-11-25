@@ -13,7 +13,7 @@
 #       (default: docker compose logs --no-color server, run in the current
 #       directory) unless E2E_SETUP_TOKEN is set.
 #
-# Environment: E2E_OUT (screenshot directory), E2E_CHROME, E2E_NO_SANDBOX=1.
+# Environment: E2E_OUT (screenshots and browser logs), E2E_CHROME, E2E_NO_SANDBOX=1.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
