@@ -104,6 +104,9 @@ if [[ $1 == check-all ]]; then
 	fi
 	for variant in sqlite postgres; do
 		printf '\n==> Headless first-run check: %s\n' "$variant"
-		E2E_OUT="$shots/$variant" bash tools/e2e/run.sh --variant "$variant" --rev "$rev"
+		# The browser runner names its own stack with -p. Also isolate the
+		# outer gonewtest teardown, which would otherwise default to "app".
+		COMPOSE_PROJECT_NAME="$project-$variant-e2e" E2E_OUT="$shots/$variant" \
+			bash tools/e2e/run.sh --variant "$variant" --rev "$rev"
 	done
 fi
