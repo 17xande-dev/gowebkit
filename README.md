@@ -1,8 +1,7 @@
 # gowebkit
 
-**Status: v0.1.0. Experimental: `gonew`
-is experimental, and neither deployment has been exercised on a real Kamal host
-yet.**
+**Status: v0.1.0. Experimental: `gonew` is experimental, and Kamal deployment
+has been rehearsed locally but not on production infrastructure.**
 
 A project template for small Go + htmx web applications that have accounts and
 an admin area. Each template is a complete, runnable app (sign-in, sessions,
@@ -42,9 +41,25 @@ make logs   # prints the one-time setup token; open /setup
 ```
 
 `gonew` rewrites only the Go module path. The non-Go files keep the placeholder
-name `myapp`; `make rename NAME=<app>` replaces it, and `make deploy` refuses to
-run until the deployment placeholders are gone. The generated README covers the
-rest.
+name `myapp`. Run `make rename NAME=appname` first, then fill in the remaining
+deployment values and commit the configuration before running `make deploy-check`.
+The generated README covers the rest.
+
+## Deployment verification
+
+Both published v0.1.0 variants were generated from the public module proxy and
+exercised once with Kamal 2.12.0 on a disposable local Docker-in-Docker host over
+SSH. The rehearsal covered `make deploy-check`, setup, `/healthz`, the one-time
+setup token, redeploy with no failed health polls, rollback, data persistence
+(SQLite volume and database file inode; PostgreSQL marker row), backups (SQLite
+file at boot; `pg_dump` over SSH), baseline `-migrate-down` refusal, and a failed
+deploy that kept the old version serving. A stopped PostgreSQL accessory caused
+`/healthz` to return `503` and the deploy to fail after 30 seconds.
+
+Not verified: real DNS, TLS or Let's Encrypt, Kamal Proxy with `ssl: true`,
+a real remote host and registry, tunnel or CDN ingress, slow-disk PostgreSQL
+startup, and SMTP. See the [SQLite](template/sqlite/docs/deploy.md) and
+[PostgreSQL](template/postgres/docs/deploy.md) deployment guides.
 
 ## SQLite or PostgreSQL
 

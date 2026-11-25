@@ -7,6 +7,23 @@ generated layout is a minor bump.
 For v0.1.0, both published templates were generated from the public module
 proxy and passed `make gate` in the generated apps.
 
+## Deployment verification
+
+The standard gates do not run Kamal. Both published v0.1.0 variants were
+exercised once with Kamal 2.12.0 on a disposable local Docker-in-Docker host over
+SSH. The rehearsal covered `make deploy-check`, setup, `/healthz`, the one-time
+setup token, redeploy with no failed health polls, rollback, data persistence
+(SQLite volume and database file inode; PostgreSQL marker row), backups (SQLite
+file at boot; `pg_dump` over SSH), baseline `-migrate-down` refusal, and a failed
+deploy that kept the old version serving. A stopped PostgreSQL accessory caused
+`/healthz` to return `503` and the deploy to fail after 30 seconds.
+
+Not verified: real DNS, TLS or Let's Encrypt, Kamal Proxy with `ssl: true`,
+a real remote host and registry, tunnel or CDN ingress, slow-disk PostgreSQL
+startup, and SMTP. Rehearse against the intended configuration before relying
+on it in production. See the [SQLite](../template/sqlite/docs/deploy.md) and
+[PostgreSQL](../template/postgres/docs/deploy.md) deployment guides.
+
 ## 1. Bump the shared modules
 
 For each kit module that has a new tag, in `template/sqlite`:

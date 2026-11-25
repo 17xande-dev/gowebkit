@@ -6,6 +6,20 @@ existing app. Both templates are released together under one version.
 ## Unreleased
 
 - CI removed; run `make check-all`.
+- Documented a local Kamal 2.12.0 rehearsal of both apps generated from the
+  published v0.1.0 modules. It covered `make deploy-check`, setup, `/healthz`,
+  the one-time setup token, redeploy with no failed health polls, rollback,
+  data persistence (SQLite volume and database file inode; PostgreSQL marker
+  row), backups (SQLite file at boot; `pg_dump` over SSH), baseline
+  `-migrate-down` refusal, and a failed deploy that kept the old version
+  serving. Stopping the PostgreSQL accessory returned `503` from `/healthz`
+  and caused the deploy to fail after 30 seconds. The rehearsal did not cover
+  real DNS, TLS or Let's Encrypt, Kamal Proxy with `ssl: true`, a real remote
+  host and registry, tunnel or CDN ingress, slow-disk PostgreSQL startup, or
+  SMTP. For existing apps, use the updated [SQLite](template/sqlite/docs/deploy.md)
+  or [PostgreSQL](template/postgres/docs/deploy.md) guide for first-deploy
+  ordering, proxy trust, sign-in smoke tests and volume retention. No code
+  changes are needed.
 
 ## v0.1.0 (2026-11-25)
 
@@ -40,6 +54,5 @@ Porting: there is nothing to port from a previous release. To bring an existing
 app up to what these templates do, follow
 [docs/upgrading-an-app.md](docs/upgrading-an-app.md).
 
-Not exercised yet: a real Kamal deployment of either variant (the PostgreSQL
-accessory shape in particular), and `gonew` against the public module proxy.
-Rehearse both before relying on them.
+Both variants were subsequently generated from the public module proxy and
+passed their gates. See Unreleased for the later local Kamal rehearsal.
