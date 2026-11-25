@@ -7,7 +7,7 @@ yet.**
 A project template for small Go + htmx web applications that have accounts and
 an admin area. Each template is a complete, runnable app (sign-in, sessions,
 request-forgery protection, a first-run setup token, an admin page for users,
-optional mail, a Docker and Kamal deployment, a CI workflow and its own tests),
+optional mail, a Docker and Kamal deployment, and its own tests),
 built on these shared modules: `websec`, `ratelimit`, `password`, `sqlitekit`
 and `mailer` under `github.com/17xande-dev`.
 
@@ -89,8 +89,8 @@ make hygiene      # scans files, history, messages and identities for private ma
 directory, as the templates' `make gate` does on first use.
 
 The two templates have their own gates (`make gate` in each directory; the
-PostgreSQL one starts its Compose database first). CI runs all of it, plus a
-browser run of the first-run flow for both generated apps.
+PostgreSQL one starts its Compose database first). Run the gates locally before
+sharing changes.
 
 ## Contributing
 

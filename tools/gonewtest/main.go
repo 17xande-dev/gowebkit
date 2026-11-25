@@ -27,7 +27,7 @@ import (
 
 const (
 	pinnedGonew = "v0.52.0"
-	testVersion = "v0.0.0-ci"
+	testVersion = "v0.0.0-snapshot"
 )
 
 type options struct {

@@ -16,7 +16,7 @@ postgres-help:
 # The tests need a database and must not skip without one.
 test: export TEST_REQUIRE_DB := 1
 test: export TEST_DATABASE_URL ?= postgres://app:app@127.0.0.1:$(POSTGRES_PORT)/app?sslmode=disable
-# A database supplied in the environment (a CI service container) is used as is;
+# A database supplied in the environment is used as is;
 # otherwise the compose database is started first.
 ifneq ($(origin TEST_DATABASE_URL),environment)
 test: db-up
@@ -43,7 +43,7 @@ db-up:
 	docker compose up --detach --wait postgres
 
 # Removes the compose database and its volume. The gate never runs this, so a
-# development database survives between runs; throwaway checks and CI call it.
+# development database survives between runs; throwaway checks call it.
 db-down:
 	docker compose down -v
 

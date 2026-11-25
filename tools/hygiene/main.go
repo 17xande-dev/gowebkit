@@ -34,7 +34,7 @@ const (
 
 // rule is one compiled expression and the label shown when it matches. A
 // private rule is labelled by its line in the private file, never by its
-// text, so a CI log does not repeat the list.
+// text, so the diagnostics do not repeat the list.
 type rule struct {
 	re      *regexp.Regexp
 	pattern string
@@ -366,7 +366,7 @@ func (a *audit) line(scope, name, part string, number int, raw string) {
 type match struct{ text, label string }
 
 // mask hides the matched text in a file or ref name before it is printed, so a
-// public CI log does not repeat the word the rule exists to keep out. When the
+// diagnostic does not repeat the word the rule exists to keep out. When the
 // match is only visible after normalisation, the whole name is replaced by its
 // SHA-256 prefix.
 func mask(name, matched string) string {

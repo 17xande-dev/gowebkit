@@ -89,7 +89,7 @@ func ownedIndex(name string, owned []entry) int {
 
 // checkOwned reports a declared path that is missing from a variant that should
 // have it, present in one that should not, or present in neither. Without this
-// a file one variant forgot (a CI workflow, say) is invisible, because
+// a file one variant forgot (a database guide, say) is invisible, because
 // variant-owned paths are not compared.
 func checkOwned(owned []entry, present []map[string]int) []string {
 	var problems []string

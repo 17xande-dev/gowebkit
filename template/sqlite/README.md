@@ -33,7 +33,7 @@ loopback. `make down` stops the services without removing the data volume.
 Run `make run` to serve natively with Go 1.27 or later. This uses a separate
 local database from Compose. Stop Compose first if it already has port 8080.
 Use `make check-config` to validate the environment without opening the
-database. Run `make gate` (it installs `govulncheck` into your Go bin directory the first time) to check
+database. Run `make gate` locally (it installs `govulncheck` into your Go bin directory the first time) to check
 formatting, run vet and uncached race tests, and scan reachable dependencies
 for vulnerabilities. `make help` lists the available targets.
 

@@ -26,7 +26,6 @@ postgres-only: internal/store/postgres_test.go # Row-lock, digest-length and sch
 
 # Database services, deployment and operator guides.
 .env.example
-.github/workflows/ci.yaml
 .kamal/secrets
 Dockerfile
 README.md # Includes the database settings table and variant quickstart.

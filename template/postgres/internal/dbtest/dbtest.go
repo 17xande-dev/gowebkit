@@ -4,7 +4,7 @@
 // is created empty, the test's connections are pointed at it with search_path,
 // and it is dropped afterwards. The tests need TEST_DATABASE_URL (a URL, not a
 // key/value string). Without it they skip, unless TEST_REQUIRE_DB=1, which
-// `make test` and CI set: then a missing database fails the run, so a skip is
+// `make test` sets: then a missing database fails the run, so a skip is
 // never mistaken for a pass.
 package dbtest
 

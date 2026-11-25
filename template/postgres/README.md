@@ -38,7 +38,7 @@ with Go 1.27 or later; without `DATABASE_URL` the app uses that development
 database. Stop Compose's server first if it already has port 8080. Use
 `make check-config` to validate the environment without opening the database,
 and `make psql` for a shell on the development database. Run
-`make gate` (it installs `govulncheck` and `sqlc` into your Go bin directory the first time) to check
+`make gate` locally (it installs `govulncheck` and `sqlc` into your Go bin directory the first time) to check
 that the generated query code is current, formatting, vet, uncached race tests
 against the development database (a missing database fails the run, it is never
 skipped) and a scan of reachable dependencies. `make help` lists the targets.

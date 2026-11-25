@@ -106,8 +106,8 @@ func requireMissing(t *testing.T, root, name string) {
 	}
 }
 
-// A declared path that exists in only one variant is how a forgotten file (a CI
-// workflow, a guide) went unnoticed: owned paths are not compared, only listed.
+// A declared path that exists in only one variant is otherwise easy to miss:
+// owned paths are not compared between variants.
 func TestCheckReportsOwnedPathInOnlyOneVariant(t *testing.T) {
 	for _, tt := range []struct {
 		name, manifest, want string
