@@ -7,7 +7,7 @@ require (
 	github.com/17xande-dev/password v0.1.0
 	github.com/17xande-dev/ratelimit v0.2.0
 	github.com/17xande-dev/websec v0.5.1
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/pressly/goose/v3 v3.30.1
 )
 

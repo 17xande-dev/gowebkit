@@ -9,7 +9,7 @@ require (
 	github.com/17xande-dev/sqlitekit v0.2.0
 	github.com/17xande-dev/websec v0.5.1
 	github.com/pressly/goose/v3 v3.30.1
-	modernc.org/sqlite v1.62.0
+	modernc.org/sqlite v1.63.0
 )
 
 require (
