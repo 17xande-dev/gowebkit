@@ -10,18 +10,18 @@
 //   E2E_LOGS_CMD     shell command printing the server log, to read the setup
 //                    token (default: docker compose logs --no-color server)
 //   E2E_SETUP_TOKEN  use this token instead of reading the log
-//   E2E_OUT          directory for screenshots (default: a new temp directory)
+//   E2E_OUT          directory for screenshots and browser logs (default: a new temp directory)
 //   E2E_CHROME       browser binary (default: chromium, google-chrome, chrome
 //                    from PATH)
 //   E2E_NO_SANDBOX   set to 1 where Chromium's sandbox cannot start (containers)
 //
 // Exit status 0 only when every check passed.
 
-import { spawn, execSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, accessSync, constants } from "node:fs";
-import { createServer } from "node:net";
+import { execSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, delimiter } from "node:path";
+import { join } from "node:path";
+import { Browser, findBrowser } from "./browser.mjs";
 
 const EXPECTED_CSP =
   "default-src 'self'; img-src 'self'; font-src 'self'; style-src 'self'; script-src 'self'; " +
@@ -54,80 +54,13 @@ function check(name, ok, detail = "") {
 
 // ---- browser ---------------------------------------------------------------
 
-function findBrowser() {
-  const wanted = process.env.E2E_CHROME ? [process.env.E2E_CHROME] : ["chromium", "google-chrome", "chrome"];
-  for (const name of wanted) {
-    if (name.includes("/")) {
-      if (existsSync(name)) return name;
-      continue;
-    }
-    for (const dir of (process.env.PATH ?? "").split(delimiter)) {
-      const candidate = join(dir, name);
-      try {
-        accessSync(candidate, constants.X_OK);
-        return candidate;
-      } catch {}
-    }
-  }
-  throw new Error("no browser found: set E2E_CHROME or put chromium, google-chrome or chrome on PATH");
-}
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.once("error", reject);
-    srv.listen(0, "127.0.0.1", () => {
-      const { port } = srv.address();
-      srv.close(() => resolve(port));
-    });
-  });
-}
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-let chrome; // the child we started: killed by this exact handle, never by pattern
-let profileDir;
-
-function killBrowser() {
-  if (chrome && chrome.exitCode === null && chrome.pid) {
-    try {
-      process.kill(-chrome.pid, "SIGKILL"); // its own process group: renderer children too
-    } catch {
-      try { chrome.kill("SIGKILL"); } catch {}
-    }
-  }
-  if (profileDir) {
-    try { rmSync(profileDir, { recursive: true, force: true }); } catch {}
-    profileDir = undefined;
-  }
-}
+let browser;
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
-  process.on(sig, () => { killBrowser(); process.exit(130); });
+  process.on(sig, () => { browser?.closeOnExit(); process.exit(130); });
 }
-process.on("exit", killBrowser);
-
-async function startBrowser() {
-  const port = await freePort();
-  profileDir = mkdtempSync(join(tmpdir(), "e2e-profile-"));
-  const args = [
-    "--headless=new", `--remote-debugging-port=${port}`, "--remote-debugging-address=127.0.0.1",
-    `--user-data-dir=${profileDir}`, "--no-first-run", "--no-default-browser-check",
-    "--disable-gpu", "--disable-extensions", "--disable-background-networking", "about:blank",
-  ];
-  if (process.env.E2E_NO_SANDBOX === "1") args.unshift("--no-sandbox");
-  chrome = spawn(findBrowser(), args, { stdio: "ignore", detached: true });
-  chrome.unref();
-  chrome.once("error", (e) => { throw e; });
-  for (let i = 0; i < 100; i++) {
-    if (chrome.exitCode !== null) throw new Error("browser exited during start");
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: "PUT" });
-      if (res.ok) return await res.json();
-    } catch {}
-    await sleep(100);
-  }
-  throw new Error("browser did not expose its debugging port");
-}
+process.on("exit", () => browser?.closeOnExit());
 
 class Page {
   constructor(ws) {
@@ -326,7 +259,8 @@ async function run() {
     check(`1 GET ${path} sets no __Host- cookie`, !cookies.some((c) => c.startsWith("__Host-")), cookies.map((c) => c.split("=")[0]).join(","));
   }
 
-  const target = await startBrowser();
+  browser = new Browser({ binary: findBrowser(), outDir, noSandbox: process.env.E2E_NO_SANDBOX === "1" });
+  const target = await browser.start();
   page = await Page.open(target);
   await page.send("Page.enable");
   await page.send("Runtime.enable");
@@ -462,7 +396,7 @@ try {
   if (page) {
     try { page.ws.close(); } catch {}
   }
-  killBrowser();
+  await browser?.close();
 }
 // Console findings are still worth printing when a step threw.
 if (fatal) {
@@ -470,5 +404,5 @@ if (fatal) {
   for (const v of cspViolations) console.log(`  csp: ${v}`);
 }
 const failed = results.filter((r) => !r.ok);
-console.log(`\n${results.length - failed.length}/${results.length} checks passed; screenshots in ${outDir}`);
+console.log(`\n${results.length - failed.length}/${results.length} checks passed; screenshots and browser logs in ${outDir}`);
 process.exit(failed.length === 0 ? 0 : 1);

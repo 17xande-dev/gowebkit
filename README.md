@@ -81,11 +81,12 @@ becomes the generated app; everything else stays here.
 ## Working on the repository
 
 ```sh
-make tools-test   # tests, vet and vulnerability scan of the tools module
+make tools-test   # Go tooling checks and offline browser startup tests
 make hygiene      # scans files, history, messages and identities for private material
 ```
 
-`make tools-test` also installs the pinned `govulncheck` into your Go bin
+`make tools-test` needs Node 22 or newer for the offline tests (no browser or npm
+packages needed). It also installs the pinned `govulncheck` into your Go bin
 directory, as the templates' `make gate` does on first use.
 
 The two templates have their own gates (`make gate` in each directory; the
