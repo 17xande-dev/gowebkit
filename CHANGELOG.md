@@ -3,9 +3,9 @@
 Each entry says what changed in the templates and how to port it into an
 existing app. Both templates are released together under one version.
 
-## Unreleased
+## v0.3.0 (2026-11-26)
 
-Planned for v0.3.0 in both templates:
+What changed:
 
 - The admin test-message button queues a `mail-test` job. The worker delivers
   it in the background, retries transient failures and parks permanent
