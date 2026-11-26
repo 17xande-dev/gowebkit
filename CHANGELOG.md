@@ -23,14 +23,38 @@ Planned for v0.2.0:
   Secret files now strip all trailing CR and LF bytes, not just a final line
   ending, and are supported on Unix only.
 
-To port this into a v0.1.x app, add the dependency with `go get
-github.com/17xande-dev/env@v0.1.0`. Adapt `internal/config` and its tests
-from the matching template, retaining any app-specific settings and checks.
-Read all keys, record validation failures with `Reader.Fail`, and check
-`Reader.Err` once before opening the database. Keep credentials as
-`env.Secret` until validation or use requires `Reveal`. Update both
-configuration references and run `go mod tidy`, `make check-config` with
-the intended deployment settings, and `make gate`.
+Apps generated from v0.1.x keep working unchanged. To adopt these changes:
+
+1. Run `go get github.com/17xande-dev/env@v0.1.0`. Port `internal/config` and
+   its tests from the template for your database, retaining app-specific
+   settings and checks. Read all keys, record validation failures with
+   `Reader.Fail`, and check `Reader.Err` after validation and before any
+   database work. Keep credentials as `env.Secret` until validation or use
+   requires `Reveal`.
+2. In `main.go`, pass `cfg.SMTP.MailerConfig()` to `mail.New` and
+   `cfg.SetupToken.Reveal()` to `ensureSetupToken`. `Config.SMTP` is now
+   `config.SMTP`; convert it with `MailerConfig()` wherever app code expects
+   a `mailer.SMTPConfig`. Use the same conversion for the loader's
+   `mailer.NewSMTPSender` validation, which needs no network connection.
+   Port `db.LogStartupWarnings` from the matching `internal/db/db.go` and
+   call it as `db.LogStartupWarnings(log, cfg)` before `open(ctx, cfg.DB)` in
+   `runServer`.
+3. For PostgreSQL, `config.DB.URL` is now an `env.Secret`, and `DB.String`
+   and `DB.GoString` are removed. In `internal/db/db.go` and database tests,
+   pass `cfg.ConnectionString()` to the driver instead of `cfg.URL`.
+   Port `dbtest.ConfigWithURL`, use it for test fixtures that formerly used
+   `config.DB{URL: ...}`, and have `dbtest.Config` pass its schema URL to it.
+   In `dbtest.SetEnv`, put the string from `NewSchema` directly in
+   `DATABASE_URL` and clear `DATABASE_URL_FILE`. Do not log the string returned
+   by `ConnectionString()`.
+4. Port the configuration parity and database startup tests in `main_test.go`
+   and `database_test.go`. Update any callers or tests that match old
+   configuration error text: the new format is one `KEY: problem` per line,
+   and secret-setting conflicts now say `cannot be set together with`.
+5. Update `.env.example`, the README's configuration reference and the
+   operations guide; on PostgreSQL, also update the deployment guide. Run
+   `go mod tidy`, `make check-config` with the intended deployment settings,
+   and `make gate`.
 
 ## v0.1.1 (2026-11-25)
 

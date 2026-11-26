@@ -9,6 +9,9 @@ Unset and empty settings use their defaults. The command reports all
 configuration problems together without printing input values or secret file
 paths. For an HTTPS `BASE_URL`, set `COOKIE_SECURE=true` explicitly; for an
 HTTP `BASE_URL`, use `false` or the default.
+If `COOKIE_SECURE` contains an invalid value, validation uses `false` for
+the remaining checks, so an HTTPS origin can produce a second problem under
+`BASE_URL`. Correct `COOKIE_SECURE` and run the check again.
 
 To inspect database migrations without applying them, run
 `/myapp -migrate-status`. Run `/myapp -migrate` to apply pending migrations
