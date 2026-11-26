@@ -143,11 +143,12 @@ func TestDatabaseModesValidateBeforeOpening(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "new")
 			t.Setenv("DB_PATH", filepath.Join(dir, "app.db"))
 			t.Setenv("BASE_URL", "https://app.example/")
+			t.Setenv("COOKIE_SECURE", "true")
 			var args []string
 			if mode != "" {
 				args = []string{mode}
 			}
-			if err := run(args, io.Discard, io.Discard); err == nil || !strings.HasPrefix(err.Error(), "configuration:") {
+			if err := run(args, io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "BASE_URL: must be a canonical origin") {
 				t.Fatalf("%s opened before validating configuration: %v", name, err)
 			}
 			if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {

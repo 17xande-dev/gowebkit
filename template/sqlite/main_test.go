@@ -39,7 +39,7 @@ func TestCheckConfigParity(t *testing.T) {
 		{"development", nil, true},
 		{"HTTPS", map[string]string{"COOKIE_SECURE": "true", "BASE_URL": "https://app.example"}, true},
 		{"mail relay", map[string]string{"SMTP_HOST": "relay.example", "EMAIL_FROM": "sender@example.com"}, true},
-		{"noncanonical origin", map[string]string{"BASE_URL": "https://app.example/"}, false},
+		{"noncanonical origin", map[string]string{"BASE_URL": "https://app.example/", "COOKIE_SECURE": "true"}, false},
 		{"numeric cookie setting", map[string]string{"COOKIE_SECURE": "1", "BASE_URL": "https://app.example"}, false},
 		{"empty cookie setting", map[string]string{"COOKIE_SECURE": ""}, true},
 		{"unsecured HTTPS cookies", map[string]string{"COOKIE_SECURE": "false", "BASE_URL": "https://app.example"}, false},

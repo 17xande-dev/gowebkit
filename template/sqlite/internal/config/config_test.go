@@ -118,11 +118,11 @@ func TestInvalidConfig(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
 		values map[string]string
-		key    string
+		want   string
 	}{
 		{"port", map[string]string{"PORT": "65536"}, "PORT"},
-		{"origin path", map[string]string{"BASE_URL": "https://app.example/"}, "BASE_URL"},
-		{"origin default port", map[string]string{"BASE_URL": "https://app.example:443"}, "BASE_URL"},
+		{"origin path", map[string]string{"BASE_URL": "https://app.example/", "COOKIE_SECURE": "true"}, "BASE_URL: must be a canonical origin"},
+		{"origin default port", map[string]string{"BASE_URL": "https://app.example:443", "COOKIE_SECURE": "true"}, "BASE_URL: must be a canonical origin"},
 		{"origin scheme", map[string]string{"COOKIE_SECURE": "true"}, "BASE_URL"},
 		{"site name", map[string]string{"SITE_NAME": " "}, "SITE_NAME"},
 		{"session duration", map[string]string{"SESSION_IDLE": "soon"}, "SESSION_IDLE"},
@@ -154,8 +154,8 @@ func TestInvalidConfig(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := from(tt.values)
-			if err == nil || !strings.Contains(err.Error(), tt.key) {
-				t.Fatalf("expected %s error, got %v", tt.key, err)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected error containing %q, got %v", tt.want, err)
 			}
 		})
 	}
