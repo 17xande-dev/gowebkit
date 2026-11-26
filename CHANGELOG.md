@@ -11,6 +11,10 @@ Planned for v0.2.0:
   default; nonempty booleans still accept exactly `true` or `false`. Startup
   and `-check-config` now report all configuration problems together without
   echoing setting values or secret file paths.
+- **PostgreSQL development fallback.** An empty or unset `DATABASE_URL`
+  uses the local development URL unless `DATABASE_URL_FILE` supplies a URL.
+  `-check-config` accepts that fallback; with `COOKIE_SECURE=true` the server
+  logs a warning before trying to connect.
 - **HTTPS requires Secure cookies.** Set `COOKIE_SECURE=true` for an HTTPS
   `BASE_URL`, even if TLS terminates at a proxy. An omitted or blank setting
   defaults to `false` and is refused for HTTPS. HTTP still requires `false`.

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"time"
 
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/config"
@@ -57,6 +58,14 @@ func (d *DB) ExecContext(ctx context.Context, query string, args ...any) (pgconn
 
 // Ping checks whether the database can answer within ctx's deadline.
 func (d *DB) Ping(ctx context.Context) error { return d.pool.Ping(ctx) }
+
+// LogStartupWarnings flags a likely missing deployment setting before any
+// connection attempt, when a failure could obscure the fallback.
+func LogStartupWarnings(log *slog.Logger, cfg config.Config) {
+	if cfg.CookieSecure && !cfg.DB.URL.IsSet() {
+		log.Warn("using the development PostgreSQL URL with COOKIE_SECURE=true; set DATABASE_URL or DATABASE_URL_FILE for this deployment")
+	}
+}
 
 // Open connects, applies pending migrations and returns the pool. All schema
 // changes go through migrations, not startup statements.

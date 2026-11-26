@@ -123,6 +123,7 @@ func printMigrationStatus(ctx context.Context, cfg config.DB, out io.Writer) err
 }
 
 func runServer(ctx context.Context, cfg config.Config, log *slog.Logger, open func(context.Context, config.DB) (*db.DB, error), maintenanceInterval time.Duration) (err error) {
+	db.LogStartupWarnings(log, cfg)
 	d, err := open(ctx, cfg.DB)
 	if err != nil {
 		return err

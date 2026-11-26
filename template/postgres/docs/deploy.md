@@ -65,7 +65,10 @@ transaction-mode pooler, where the lock would silently protect nothing.
    `sslmode=disable` is acceptable only because the connection stays on the
    host's private Docker network. The password cannot be changed by editing
    `.env.production` afterwards: PostgreSQL stores it in the data volume on first
-   start, so changing it later is an `ALTER USER` and a new `DATABASE_URL`.
+    start, so changing it later is an `ALTER USER` and a new `DATABASE_URL`.
+    Supply a nonempty `DATABASE_URL` (or configure `DATABASE_URL_FILE`):
+    otherwise `-check-config` still passes, and with `COOKIE_SECURE=true` the
+    server logs a warning before trying the local development database.
    `.kamal/secrets` holds references to these names, never values. If your mail
    relay needs credentials, set the non-secret SMTP fields in `env.clear`, add
    `SMTP_PASSWORD` to `env.secret` and set it in `.env.production`.

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -24,6 +25,9 @@ var files embed.FS
 
 // DB is the migrated database pool. The caller owns Close.
 type DB struct{ *sql.DB }
+
+// LogStartupWarnings has nothing to report for the SQLite configuration.
+func LogStartupWarnings(*slog.Logger, config.Config) {}
 
 // Open verifies the SQLite settings and applies migrations before returning.
 // All schema changes go through migrations, not startup ALTER statements.

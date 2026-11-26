@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -174,6 +177,78 @@ func TestDatabaseModesValidateBeforeOpening(t *testing.T) {
 			}
 			if n := attempts.Load(); n != 0 {
 				t.Fatalf("%s tried to connect to the database %d times before validation", name, n)
+			}
+		})
+	}
+}
+
+func TestRunServerWarnsWhenUsingDevelopmentDatabase(t *testing.T) {
+	setTestEnv(t, 8080)
+	t.Setenv("DATABASE_URL", "")
+	if err := os.Unsetenv("DATABASE_URL"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DATABASE_URL_FILE", "")
+
+	const developmentURL = "postgres://app:app@localhost:5432/app?sslmode=disable"
+	file := filepath.Join(t.TempDir(), "url")
+	if err := os.WriteFile(file, []byte(developmentURL+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name   string
+		secure bool
+		env    map[string]string
+		warn   bool
+	}{
+		{"secure and unset", true, nil, true},
+		{"secure and empty", true, map[string]string{"DATABASE_URL": ""}, true},
+		{"insecure and unset", false, nil, false},
+		{"secure and explicit", true, map[string]string{"DATABASE_URL": developmentURL}, false},
+		{"secure and file", true, map[string]string{"DATABASE_URL": "", "DATABASE_URL_FILE": file}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.secure {
+				t.Setenv("BASE_URL", "https://app.example")
+				t.Setenv("COOKIE_SECURE", "true")
+			}
+			for key, value := range tt.env {
+				t.Setenv(key, value)
+			}
+			var stdout, stderr bytes.Buffer
+			if err := run([]string{"-check-config"}, &stdout, &stderr); err != nil {
+				t.Fatal(err)
+			}
+			if stdout.String() != "Configuration OK\n" || stderr.Len() != 0 {
+				t.Fatal("-check-config should confirm valid settings without a startup warning")
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var logs bytes.Buffer
+			var beforeOpen string
+			stop := errors.New("stop before connecting")
+			open := func(context.Context, config.DB) (*db.DB, error) {
+				beforeOpen = logs.String()
+				return nil, stop
+			}
+			if err := runServer(t.Context(), cfg, newLogger(&logs, cfg), open, time.Hour); !errors.Is(err, stop) {
+				t.Fatalf("expected to reach the database opener, got %v", err)
+			}
+			if !tt.warn {
+				if logs.Len() != 0 {
+					t.Error("unexpected database warning")
+				}
+				return
+			}
+			var event struct{ Level, Msg string }
+			if err := json.Unmarshal([]byte(beforeOpen), &event); err != nil {
+				t.Fatalf("expected one startup warning before connecting: %v", err)
+			}
+			if event.Level != "WARN" ||
+				event.Msg != "using the development PostgreSQL URL with COOKIE_SECURE=true; set DATABASE_URL or DATABASE_URL_FILE for this deployment" {
+				t.Error("expected a WARN with guidance for configuring PostgreSQL")
 			}
 		})
 	}
