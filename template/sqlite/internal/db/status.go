@@ -9,20 +9,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/17xande-dev/gowebkit/template/sqlite/internal/config"
 	"github.com/17xande-dev/sqlitekit/goosestrict"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/database"
 )
-
-// MigrationStatus describes a migration shipped with this build.
-type MigrationStatus struct {
-	Version   int64
-	Applied   bool
-	AppliedAt time.Time
-}
 
 // Exists reports whether the database file is there, without creating it or
 // its directory. A command that must not initialise an empty database
@@ -78,10 +70,10 @@ func Status(ctx context.Context, cfg config.DB) (_ []MigrationStatus, err error)
 	if dirErr != nil {
 		// Report the snapshot from before a concurrent boot could create
 		// the directory, rather than querying its new file without the lock.
-		return pending(p), nil
+		return append(pending(p), pendingOutbox), nil
 	}
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return pending(p), nil
+		return append(pending(p), pendingOutbox), nil
 	} else if err != nil {
 		return nil, err
 	}
@@ -90,7 +82,7 @@ func Status(ctx context.Context, cfg config.DB) (_ []MigrationStatus, err error)
 		return nil, fmt.Errorf("inspect migration history: %w", err)
 	}
 	if !exists {
-		return pending(p), nil
+		return outboxStatus(ctx, pool, pending(p))
 	}
 	current, target, err := p.GetVersions(ctx)
 	if err != nil {
@@ -109,7 +101,15 @@ func Status(ctx context.Context, cfg config.DB) (_ []MigrationStatus, err error)
 			Version: s.Source.Version, Applied: s.State == goose.StateApplied, AppliedAt: s.AppliedAt,
 		})
 	}
-	return results, nil
+	return outboxStatus(ctx, pool, results)
+}
+
+func outboxStatus(ctx context.Context, pool *sql.DB, app []MigrationStatus) ([]MigrationStatus, error) {
+	store, err := goosestrict.NewStoreTable(outboxHistory)
+	if err != nil {
+		return nil, err
+	}
+	return appendOutboxStatus(ctx, pool, store, app)
 }
 
 func openStatusPool(path string) (*sql.DB, error) {

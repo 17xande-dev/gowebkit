@@ -17,7 +17,10 @@ import (
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/auth"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/config"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/dbtest"
+	"github.com/17xande-dev/gowebkit/template/postgres/internal/jobs"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/store"
+	"github.com/17xande-dev/mailer"
+	"github.com/17xande-dev/outbox"
 	"github.com/17xande-dev/password"
 	"github.com/17xande-dev/websec/cookie"
 	"github.com/17xande-dev/websec/session"
@@ -85,8 +88,13 @@ func renderedPageClient(t *testing.T, path string, role auth.Role, brokenHome bo
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := testConfig(t)
-	accounts := store.New(dbtest.Open(t))
-	s, err := newSite(cfg, log, accounts)
+	d := dbtest.Open(t)
+	accounts := store.New(d)
+	queue, err := jobs.New(d, mailer.Discard{}, cfg.SiteName, outbox.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := newSite(cfg, log, accounts, WithJobs(queue, false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,6 +147,7 @@ var pageRoutes = []struct {
 	{"app/home", "/", "Welcome to Sample", "app-shell", http.StatusOK, auth.RoleMember, false},
 	{"app/password", "/account/password", "Change password", "app-shell", http.StatusOK, auth.RoleMember, false},
 	{"app/users", "/admin/users", "Create an account", "app-shell", http.StatusOK, auth.RoleAdmin, false},
+	{"app/jobs", "/admin/jobs", "Job queue", "app-shell", http.StatusOK, auth.RoleAdmin, false},
 	{"app/forbidden", "/admin/users", "Not allowed", "app-shell", http.StatusForbidden, auth.RoleMember, false},
 	{"plain/not-found", "/missing", "Page not found", "plain-shell", http.StatusNotFound, "", false},
 	{"plain/server-error", "/", "Something went wrong", "plain-shell", http.StatusInternalServerError, auth.RoleMember, true},

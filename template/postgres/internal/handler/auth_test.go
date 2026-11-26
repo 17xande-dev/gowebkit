@@ -307,6 +307,7 @@ var protectedPatterns = []string{
 	"GET /{$}", "GET /account/password", "POST /account/password",
 	"GET /admin/users", "POST /admin/users", "POST /admin/users/{id}/role",
 	"POST /admin/users/{id}/disabled", "POST /admin/users/{id}/password", "POST /admin/mail-test",
+	"GET /admin/jobs", "POST /admin/jobs/{id}/retry",
 }
 
 func TestAnonymousProtectedRoutes(t *testing.T) {

@@ -35,6 +35,7 @@ type Config struct {
 	LogLevel            slog.Level
 	LogFormat           string
 	ShutdownTimeout     time.Duration
+	JobKeepDone         time.Duration
 	SMTP                SMTP
 }
 
@@ -70,6 +71,7 @@ func load(lookup env.Lookup) (Config, error) {
 		PasswordConcurrency: r.Int("PASSWORD_CONCURRENCY", 2, 1, 64),
 		LogFormat:           r.OneOf("LOG_FORMAT", "json", "json", "text"),
 		ShutdownTimeout:     r.Duration("SHUTDOWN_TIMEOUT", 15*time.Second, time.Nanosecond, 0),
+		JobKeepDone:         r.Duration("JOB_KEEP_DONE", 14*24*time.Hour, time.Nanosecond, 0),
 		DB:                  loadDB(r),
 	}
 	defaultOrigin := "http://localhost"

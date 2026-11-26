@@ -81,6 +81,7 @@ configuration problems together and does not echo setting values.
 | `LOG_LEVEL` | `info` | Minimum severity: `debug`, `info`, `warn` or `error`. |
 | `LOG_FORMAT` | `json` | `json` or `text` output. |
 | `SHUTDOWN_TIMEOUT` | `15s` | Positive Go duration for draining HTTP requests. |
+| `JOB_KEEP_DONE` | `336h` | Positive Go duration for keeping done and discarded jobs. Dead jobs are kept until handled. |
 | `SMTP_HOST` | Unset | Hostname or IP without a port. Empty disables mail. |
 | `SMTP_PORT` | `587` | Integer 1–65535; relay port. |
 | `SMTP_USERNAME` | Unset | Non-blank relay login, paired with a password; requires TLS. |
@@ -117,7 +118,8 @@ repository to associate the image package with it.
 
 See [deployment](docs/deploy.md) for the accessory, the first deploy and how
 to roll back the schema with the newer image before rolling back the app.
-See [operations](docs/operations.md) for logs and account recovery.
+See [operations](docs/operations.md) for logs, account recovery and the admin
+job queue at `/admin/jobs`.
 
 ## Decisions still open
 
@@ -140,3 +142,8 @@ PostgreSQL advisory lock. The shared `websec`, `password`, `ratelimit` and
 `mailer` packages provide cookie, session and request-forgery mechanisms,
 password hashing, bounded rate limiting and mail delivery without an
 application framework.
+
+`outbox` runs durable background work in the application database. The mail
+test shows how to register a job, classify failures and give admins a way to
+retry. See [operations](docs/operations.md#job-queue) for delivery guarantees
+and upgrades that change the queue schema.

@@ -10,7 +10,18 @@
 go.mod
 go.sum
 postgres-only: sqlc.yaml
-internal/db/
+internal/db/backup.go
+internal/db/db.go
+internal/db/db_test.go
+internal/db/status.go
+internal/db/migrations/
+sqlite-only: internal/db/backup_test.go
+internal/db/rollback_test.go
+sqlite-only: internal/db/status_test.go
+postgres-only: internal/db/export_test.go
+postgres-only: internal/db/gen/
+postgres-only: internal/db/queries/
+internal/jobs/store.go
 internal/dbtest/
 internal/config/db.go
 internal/config/db_test.go

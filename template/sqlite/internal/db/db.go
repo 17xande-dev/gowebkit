@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/17xande-dev/gowebkit/template/sqlite/internal/config"
+	"github.com/17xande-dev/outbox/sqlitestore"
 	"github.com/17xande-dev/sqlitekit"
 	"github.com/17xande-dev/sqlitekit/goosestrict"
 	"github.com/pressly/goose/v3"
@@ -32,9 +33,12 @@ func LogStartupWarnings(*slog.Logger, config.Config) {}
 // Open verifies the SQLite settings and applies migrations before returning.
 // All schema changes go through migrations, not startup ALTER statements.
 func Open(ctx context.Context, cfg config.DB) (*DB, error) {
-	return migrate(ctx, cfg, true, func(ctx context.Context, p *goose.Provider) error {
-		_, err := p.Up(ctx)
-		return err
+	return migrate(ctx, cfg, true, func(ctx context.Context, p *goose.Provider, pool *sql.DB) error {
+		// The application's schema commits first; the queue's tables follow.
+		if _, err := p.Up(ctx); err != nil {
+			return err
+		}
+		return sqlitestore.Migrate(ctx, pool)
 	})
 }
 
@@ -60,7 +64,7 @@ func MigrateDown(ctx context.Context, cfg config.DB) error {
 	return d.Close()
 }
 
-func rollbackOne(ctx context.Context, p *goose.Provider) error {
+func rollbackOne(ctx context.Context, p *goose.Provider, _ *sql.DB) error {
 	current, _, err := p.GetVersions(ctx)
 	if err != nil {
 		return err
@@ -77,7 +81,7 @@ func rollbackOne(ctx context.Context, p *goose.Provider) error {
 	return nil
 }
 
-func migrate(ctx context.Context, cfg config.DB, create bool, step func(context.Context, *goose.Provider) error) (d *DB, err error) {
+func migrate(ctx context.Context, cfg config.DB, create bool, step func(context.Context, *goose.Provider, *sql.DB) error) (d *DB, err error) {
 	path, err := filepath.Abs(cfg.DBPath)
 	if err != nil {
 		return nil, err
@@ -148,7 +152,7 @@ func migrate(ctx context.Context, cfg config.DB, create bool, step func(context.
 	if err != nil {
 		return nil, err
 	}
-	if err := step(ctx, p); err != nil {
+	if err := step(ctx, p, pool); err != nil {
 		return nil, fmt.Errorf("migrate database: %w", err)
 	}
 	return &DB{pool}, nil

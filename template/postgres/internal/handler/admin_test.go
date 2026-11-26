@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"bufio"
 	"errors"
 	"html"
+	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -13,14 +16,20 @@ import (
 
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/auth"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/dbtest"
+	"github.com/17xande-dev/gowebkit/template/postgres/internal/jobs"
+	"github.com/17xande-dev/gowebkit/template/postgres/internal/mail"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/store"
 	"github.com/17xande-dev/mailer"
+	"github.com/17xande-dev/outbox"
+	"github.com/17xande-dev/outbox/outboxtest"
 	"github.com/17xande-dev/websec/webtest"
 )
 
 type adminSite struct {
 	h        http.Handler
 	accounts *store.Store
+	queue    *jobs.Queue
+	clock    *outboxtest.Clock
 	admins   []string
 	patterns []string
 	logs     *webtest.Logs
@@ -29,15 +38,30 @@ type adminSite struct {
 
 func newAdminSite(t *testing.T, opts ...Option) *adminSite {
 	t.Helper()
+	return newAdminSiteWithMail(t, nil, opts...)
+}
+
+func newAdminSiteWithMail(t *testing.T, sender mailer.Sender, opts ...Option) *adminSite {
+	t.Helper()
 	cfg := testConfig(t)
 	log, logs := webtest.Logger(t)
-	accounts := store.New(dbtest.Open(t))
-	s, err := newSite(cfg, log, accounts, opts...)
+	d := dbtest.Open(t)
+	accounts := store.New(d)
+	delivers := sender != nil
+	if !delivers {
+		sender = mail.Discard(log)
+	}
+	clock := outboxtest.NewClock(time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC))
+	queue, err := jobs.New(d, sender, cfg.SiteName, outbox.Options{Logger: log, Now: clock.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := newSite(cfg, log, accounts, append(opts, WithJobs(queue, delivers))...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	h, patterns, admins := s.routesWithAdmin(nil)
-	return &adminSite{h: h, accounts: accounts, admins: admins, patterns: patterns, logs: logs, cfgURL: cfg.BaseURL}
+	return &adminSite{h: h, accounts: accounts, queue: queue, clock: clock, admins: admins, patterns: patterns, logs: logs, cfgURL: cfg.BaseURL}
 }
 
 func (a *adminSite) client(t *testing.T) *webtest.Client { return webtest.New(t, a.h, a.cfgURL) }
@@ -185,7 +209,7 @@ func TestMustChangeRedirectsEverySignedInRoute(t *testing.T) {
 				res.WantRedirect(http.StatusSeeOther, "/account/password")
 				swept++
 			}
-			webtest.MinCount(t, "swept routes", swept, 7)
+			webtest.MinCount(t, "swept routes", swept, 9)
 			c.Get("/account/password").WantStatus(http.StatusOK)
 			// Signing out stays possible, or the user is stuck.
 			post(c, "/account/password", "/logout", nil).WantStatus(http.StatusSeeOther)
@@ -212,14 +236,13 @@ func TestMustChangeRedirectsEverySignedInRoute(t *testing.T) {
 }
 
 func TestMemberIsRefusedEveryAdminRoute(t *testing.T) {
-	fake := mailer.NewFake()
-	a := newAdminSite(t, WithMail(fake, true))
+	a := newAdminSite(t)
 	a.seed(t, "admin-account@example.com", auth.RoleAdmin)
 	target := a.seed(t, testEmail, auth.RoleMember)
 	c := a.signedIn(t, testEmail)
 	token := c.Page("/").Token()
 	before, _ := a.accounts.ListUsers(t.Context())
-	webtest.MinCount(t, "admin routes", len(a.admins), 6)
+	webtest.MinCount(t, "admin routes", len(a.admins), 8)
 	for _, route := range webtest.Routes(t, a.admins, map[string]string{"id": "1"}) {
 		t.Run(route.Pattern, func(t *testing.T) {
 			c := c.With(t)
@@ -238,8 +261,11 @@ func TestMemberIsRefusedEveryAdminRoute(t *testing.T) {
 	if len(before) != len(after) || !slices.EqualFunc(before, after, func(x, y auth.User) bool { return x == y }) {
 		t.Fatal("a refused member request changed accounts")
 	}
-	if _, err := a.accounts.UserByID(t.Context(), target.ID); err != nil || len(fake.Attempted()) != 0 {
-		t.Fatalf("a refused member request sent mail or removed the member: %v", err)
+	if _, err := a.accounts.UserByID(t.Context(), target.ID); err != nil {
+		t.Fatalf("a refused member request removed the member: %v", err)
+	}
+	if pending := outboxtest.Enqueued(t, a.queue, outbox.Filter{}); len(pending) != 0 {
+		t.Fatalf("a refused member request queued %d jobs", len(pending))
 	}
 }
 
@@ -382,67 +408,204 @@ func TestNoticesComeFromAFixedMap(t *testing.T) {
 }
 
 func TestAdminMailTest(t *testing.T) {
+	const email = "admin-account@example.com"
 	t.Run("delivers to the admin", func(t *testing.T) {
 		fake := mailer.NewFake()
-		a := newAdminSite(t, WithMail(fake, true))
-		a.seed(t, "admin-account@example.com", auth.RoleAdmin)
-		c := a.signedIn(t, "admin-account@example.com")
-		post(c, "/admin/users", "/admin/mail-test", nil).WantRedirect(http.StatusSeeOther, "/admin/users?notice=mail-sent")
+		a := newAdminSiteWithMail(t, fake)
+		a.seed(t, email, auth.RoleAdmin)
+		c := a.signedIn(t, email)
+		c.Page("/admin/users").Form("/admin/mail-test").Submit().
+			WantRedirect(http.StatusSeeOther, "/admin/users?notice=mail-queued")
+		if len(fake.Attempted()) != 0 {
+			t.Fatal("the request performed delivery")
+		}
+		if body := c.Get("/admin/jobs").Body; !strings.Contains(body, "Pending: 1") {
+			t.Fatal("page does not show the queued job")
+		}
+		if n := outboxtest.Drain(t, a.queue); n != 1 {
+			t.Fatalf("drained %d jobs, want 1", n)
+		}
 		sent := fake.Sent()
-		if len(sent) != 1 || len(sent[0].To) != 1 || sent[0].To[0] != "admin-account@example.com" ||
+		if len(sent) != 1 || len(sent[0].To) != 1 || sent[0].To[0] != email ||
 			sent[0].Subject == "" || sent[0].Text == "" {
 			t.Fatalf("sent = %+v", sent)
 		}
-		if body := c.Get("/admin/users").Body; !strings.Contains(body, "Mail is configured.") {
-			t.Fatal("page does not say mail is configured")
+		if body := c.Get("/admin/users").Body; !strings.Contains(body, "Mail is configured.") || !strings.Contains(body, `href="/admin/jobs"`) {
+			t.Fatal("Users page does not show configured mail and link to the queue")
+		}
+		if body := c.Get("/admin/jobs").Body; !strings.Contains(body, "Done: 1") {
+			t.Fatal("queue page does not show the finished job")
 		}
 	})
-	t.Run("reports a refusal", func(t *testing.T) {
+	t.Run("retries a transient failure", func(t *testing.T) {
 		fake := mailer.NewFake()
 		fake.Err = http.ErrServerClosed
-		a := newAdminSite(t, WithMail(fake, true))
-		a.seed(t, "admin-account@example.com", auth.RoleAdmin)
-		c := a.signedIn(t, "admin-account@example.com")
-		post(c, "/admin/users", "/admin/mail-test", nil).WantRedirect(http.StatusSeeOther, "/admin/users?notice=mail-failed")
+		a := newAdminSiteWithMail(t, fake)
+		a.seed(t, email, auth.RoleAdmin)
+		c := a.signedIn(t, email)
+		post(c, "/admin/users", "/admin/mail-test", nil).WantRedirect(http.StatusSeeOther, "/admin/users?notice=mail-queued")
+		outboxtest.Drain(t, a.queue)
 		if len(fake.Attempted()) != 1 || len(fake.Sent()) != 0 {
 			t.Fatal("failure was not attempted exactly once")
 		}
-	})
-	t.Run("keeps the recipient out of the log", func(t *testing.T) {
-		fake := mailer.NewFake()
-		fake.Err = errors.New("relay refused <admin-account@example.com>")
-		a := newAdminSite(t, WithMail(fake, true))
-		a.seed(t, "admin-account@example.com", auth.RoleAdmin)
-		c := a.signedIn(t, "admin-account@example.com")
-		post(c, "/admin/users", "/admin/mail-test", nil).WantRedirect(http.StatusSeeOther, "/admin/users?notice=mail-failed")
-		webtest.NoSecrets(t, a.logs.String(), "test message failed", "admin-account@example.com")
+		fake.Err = nil
+		a.clock.Advance(2 * time.Minute)
+		outboxtest.Drain(t, a.queue)
+		if len(fake.Sent()) != 1 || len(fake.Attempted()) != 2 {
+			t.Fatal("the transient failure was not retried")
+		}
 	})
 	t.Run("is rate limited", func(t *testing.T) {
 		fake := mailer.NewFake()
-		a := newAdminSite(t, WithMail(fake, true))
-		a.seed(t, "admin-account@example.com", auth.RoleAdmin)
-		c := a.signedIn(t, "admin-account@example.com")
+		a := newAdminSiteWithMail(t, fake)
+		a.seed(t, email, auth.RoleAdmin)
+		c := a.signedIn(t, email)
 		for range 9 {
 			post(c, "/admin/users", "/admin/mail-test", nil).WantStatus(http.StatusSeeOther)
 		}
 		post(c, "/admin/users", "/admin/mail-test", nil).WantStatus(http.StatusTooManyRequests)
-		if len(fake.Attempted()) != 9 {
-			t.Fatalf("attempted %d messages, want 9", len(fake.Attempted()))
+		if n := outboxtest.Drain(t, a.queue); n != 9 {
+			t.Fatalf("drained %d jobs, want 9", n)
 		}
 	})
 	t.Run("discards by default", func(t *testing.T) {
 		a := newAdminSite(t)
-		a.seed(t, "admin-account@example.com", auth.RoleAdmin)
-		c := a.signedIn(t, "admin-account@example.com")
-		post(c, "/admin/users", "/admin/mail-test", nil).WantRedirect(http.StatusSeeOther, "/admin/users?notice=mail-sent")
+		a.seed(t, email, auth.RoleAdmin)
+		c := a.signedIn(t, email)
+		post(c, "/admin/users", "/admin/mail-test", nil).WantRedirect(http.StatusSeeOther, "/admin/users?notice=mail-queued")
+		outboxtest.Drain(t, a.queue)
 		if body := c.Get("/admin/users").Body; !strings.Contains(body, "Mail is not configured") {
 			t.Fatal("page hides that mail is discarded")
 		}
 		if !strings.Contains(a.logs.String(), "discarding message") {
 			t.Fatal("the discarded message was not logged")
 		}
-		webtest.NoSecrets(t, a.logs.String(), "discarding message", "admin-account@example.com")
+		webtest.NoSecrets(t, a.logs.String(), "discarding message", email)
 	})
+}
+
+type recipientRefusal struct{ error }
+
+func (recipientRefusal) ErrorCode() int { return 550 }
+
+func deadMailJob(t *testing.T) (*adminSite, *webtest.Client, *mailer.Fake, outbox.Info, auth.User) {
+	t.Helper()
+	fake := mailer.NewFake()
+	fake.Err = recipientRefusal{errors.New("550 5.1.1 refused <distinctive-refusal@example.com>")}
+	a := newAdminSiteWithMail(t, fake)
+	user := a.seed(t, "admin-account@example.com", auth.RoleAdmin)
+	c := a.signedIn(t, user.Email)
+	c.Page("/admin/users").Form("/admin/mail-test").Submit().
+		WantRedirect(http.StatusSeeOther, "/admin/users?notice=mail-queued")
+	outboxtest.Drain(t, a.queue)
+	dead := outboxtest.Enqueued(t, a.queue, outbox.Filter{Kind: "mail-test", State: outbox.StateDead})
+	if len(dead) != 1 || dead[0].Attempts != 1 {
+		t.Fatalf("permanent refusal must be dead after one attempt: %+v", dead)
+	}
+	return a, c, fake, dead[0], user
+}
+
+func TestMailTestPermanentRefusalIsNotRetried(t *testing.T) {
+	a, _, fake, _, _ := deadMailJob(t)
+	a.clock.Advance(24 * time.Hour)
+	if n := outboxtest.Drain(t, a.queue); n != 0 || len(fake.Attempted()) != 1 {
+		t.Fatalf("permanent refusal retried: drained %d, attempted %d", n, len(fake.Attempted()))
+	}
+}
+
+func TestMailTestRefusalKeepsAddressOutOfLogs(t *testing.T) {
+	const address = "distinctive-refusal@example.com"
+	relay := newRefusingRelay(t, address)
+	a := newAdminSiteWithMail(t, relay)
+	a.seed(t, address, auth.RoleAdmin)
+	c := a.signedIn(t, address)
+	c.Page("/admin/users").Form("/admin/mail-test").Submit().
+		WantRedirect(http.StatusSeeOther, "/admin/users?notice=mail-queued")
+	outboxtest.Drain(t, a.queue)
+	dead := outboxtest.Enqueued(t, a.queue, outbox.Filter{Kind: "mail-test", State: outbox.StateDead})
+	if len(dead) != 1 || dead[0].LastError != "The mail server permanently refused the message." {
+		t.Fatalf("stored refusal = %+v", dead)
+	}
+	webtest.NoSecrets(t, a.logs.String(), `"error_class":"*outbox.permanentError"`, address)
+}
+
+func newRefusingRelay(t *testing.T, address string) mailer.Sender {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	t.Cleanup(func() {
+		_ = ln.Close()
+		<-done
+	})
+	go func() {
+		defer close(done)
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+		_, _ = io.WriteString(conn, "220 relay.example SMTP\r\n")
+		lines := bufio.NewScanner(conn)
+		for lines.Scan() {
+			command, _, _ := strings.Cut(strings.ToUpper(lines.Text()), " ")
+			switch command {
+			case "EHLO", "HELO", "NOOP", "MAIL", "RSET":
+				_, _ = io.WriteString(conn, "250 OK\r\n")
+			case "RCPT":
+				_, _ = io.WriteString(conn, "550 5.1.1 refused <"+address+">\r\n")
+			case "QUIT":
+				_, _ = io.WriteString(conn, "221 Bye\r\n")
+				return
+			default:
+				_, _ = io.WriteString(conn, "451 unexpected command\r\n")
+				return
+			}
+		}
+	}()
+	sender, err := mailer.NewSMTPSender(mailer.SMTPConfig{
+		Host: "127.0.0.1", Port: ln.Addr().(*net.TCPAddr).Port,
+		From: "sender@example.com", TLS: mailer.TLSNone,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sender
+}
+
+func TestAdminJobRetryRequiresCSRF(t *testing.T) {
+	a, c, _, dead, _ := deadMailJob(t)
+	path := "/admin/jobs/" + itoa(dead.ID) + "/retry"
+	c.PostForm(path, url.Values{webtest.TokenField: {"invalid-token"}}).WantStatus(http.StatusForbidden)
+	got, err := a.queue.Get(t.Context(), dead.ID)
+	if err != nil || got.State != outbox.StateDead || got.RetryCount != 0 {
+		t.Fatalf("forged retry changed job: %+v, %v", got, err)
+	}
+}
+
+func TestAdminSeesAndRetriesDeadJob(t *testing.T) {
+	a, c, fake, dead, user := deadMailJob(t)
+	path := "/admin/jobs/" + itoa(dead.ID) + "/retry"
+	res := c.Get("/admin/jobs")
+	for _, text := range []string{"Dead: 1", "mail-test", "1/6 attempts", "The mail server permanently refused the message."} {
+		if !strings.Contains(res.Body, text) {
+			t.Errorf("queue page lacks %q", text)
+		}
+	}
+	c.Get(path).WantStatus(http.StatusNotFound)
+	c.Page("/admin/jobs").Form(path).Submit().WantRedirect(http.StatusSeeOther, "/admin/jobs?notice=job-retried")
+	post(c, "/admin/jobs", path, nil).WantRedirect(http.StatusSeeOther, "/admin/jobs?notice=job-not-dead")
+	got, err := a.queue.Get(t.Context(), dead.ID)
+	if err != nil || got.State != outbox.StatePending || got.RetriedBy != "user:"+itoa(user.ID) || got.RetryCount != 1 {
+		t.Fatalf("retried job = %+v, %v", got, err)
+	}
+	fake.Err = nil
+	if n := outboxtest.Drain(t, a.queue); n != 1 || len(fake.Sent()) != 1 {
+		t.Fatalf("retried job did not send: ran %d, sent %d", n, len(fake.Sent()))
+	}
 }
 
 func TestAdminPageShowsNewestBackup(t *testing.T) {

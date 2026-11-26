@@ -57,10 +57,13 @@
 <section class="card">
   <h2>Operations</h2>
   <p id="backup-status">{{.BackupLine}}</p>
+  {{if .HasJobs}}
   <p id="mail-status">{{if .MailDelivers}}Mail is configured.{{else}}Mail is not configured; test messages are discarded.{{end}}</p>
   <form method="post" action="/admin/mail-test">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
     <button type="submit">Send a test message to me</button>
   </form>
+  <p><a href="/admin/jobs">View job queue</a></p>
+  {{end}}
 </section>
 {{end}}

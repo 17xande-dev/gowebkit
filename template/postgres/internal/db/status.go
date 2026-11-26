@@ -4,19 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/config"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/database"
 )
-
-// MigrationStatus describes a migration shipped with this build.
-type MigrationStatus struct {
-	Version   int64
-	Applied   bool
-	AppliedAt time.Time
-}
 
 // Exists reports whether the database holds migration history, without
 // creating anything. A command that must not initialise an empty database
@@ -51,6 +44,10 @@ func Status(ctx context.Context, cfg config.DB) (_ []MigrationStatus, err error)
 	if err != nil {
 		return nil, err
 	}
+	outboxStore, err := database.NewStore(database.DialectPostgres, outboxHistory)
+	if err != nil {
+		return nil, err
+	}
 	exists, err := versionTableExists(ctx, sqlDB)
 	if err != nil {
 		return nil, err
@@ -61,7 +58,7 @@ func Status(ctx context.Context, cfg config.DB) (_ []MigrationStatus, err error)
 		for _, s := range sources {
 			pending = append(pending, MigrationStatus{Version: s.Version})
 		}
-		return pending, nil
+		return appendOutboxStatus(ctx, sqlDB, outboxStore, pending)
 	}
 	current, target, err := p.GetVersions(ctx)
 	if err != nil {
@@ -80,5 +77,5 @@ func Status(ctx context.Context, cfg config.DB) (_ []MigrationStatus, err error)
 			Version: s.Source.Version, Applied: s.State == goose.StateApplied, AppliedAt: s.AppliedAt,
 		})
 	}
-	return results, nil
+	return appendOutboxStatus(ctx, sqlDB, outboxStore, results)
 }

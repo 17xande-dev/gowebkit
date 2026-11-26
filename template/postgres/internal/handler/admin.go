@@ -1,18 +1,18 @@
 package handler
 
 import (
-	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/auth"
+	"github.com/17xande-dev/gowebkit/template/postgres/internal/jobs"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/middleware"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/store"
-	"github.com/17xande-dev/mailer"
+	"github.com/17xande-dev/outbox"
 )
 
 func (s *site) usersPage(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +36,7 @@ func (s *site) renderUsers(w http.ResponseWriter, r *http.Request, status int, m
 	s.render(w, r, status, "app/users", "Users", pageData{
 		Message: message, Users: users, SelfID: self.ID, EnabledAdmins: admins,
 		Roles: []auth.Role{auth.RoleMember, auth.RoleAdmin}, BackupLine: s.backupLine(),
-		MailDelivers: s.mailDelivers,
+		MailDelivers: s.mailDelivers, HasJobs: s.jobs != nil,
 	})
 }
 
@@ -104,8 +104,7 @@ func (s *site) userCreate(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// targetID reads the {id} path value; anything that is not a positive integer
-// is the same as an account that doesn't exist.
+// targetID treats anything other than a positive integer as not found.
 func (s *site) targetID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -181,25 +180,67 @@ func (s *site) userPassword(w http.ResponseWriter, r *http.Request) {
 	s.userChange(w, r, s.accounts.ResetPassword(r.Context(), id, hash), "password-reset", "password reset failed")
 }
 
-// mailTest sends one message to the signed-in admin, so the mail settings can
-// be checked without a real workflow depending on them.
+// mailTest queues one message to the signed-in admin to exercise delivery.
 func (s *site) mailTest(w http.ResponseWriter, r *http.Request) {
-	user, _ := middleware.User(r)
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-	defer cancel()
-	err := s.mail.Send(ctx, mailer.Message{
-		To:      []string{user.Email},
-		Subject: "Test message",
-		Text:    "This is a test message from " + s.siteName + ". Mail settings are working.",
-	})
-	if err != nil {
-		// A relay's refusal often quotes the recipient; keep the address out of the log.
-		s.log.ErrorContext(r.Context(), "test message failed", "user_id", user.ID,
-			"error", strings.ReplaceAll(err.Error(), user.Email, "[recipient]"))
-		s.redirectNotice(w, r, "mail-failed")
+	if s.jobs == nil {
+		http.Error(w, "Job queue is unavailable.", http.StatusServiceUnavailable)
 		return
 	}
-	s.redirectNotice(w, r, "mail-sent")
+	user, _ := middleware.User(r)
+	_, _, err := s.jobs.EnqueueNow(r.Context(), outbox.Message{
+		Kind: jobs.MailTest, Subject: "user:" + strconv.FormatInt(user.ID, 10), Payload: []byte(user.Email),
+	})
+	if err != nil {
+		s.jobError(w, r, "test message enqueue failed", err)
+		return
+	}
+	s.redirectNotice(w, r, "mail-queued")
+}
+
+func (s *site) retryJob(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.targetID(w, r)
+	if !ok {
+		return
+	}
+	if s.jobs == nil {
+		http.Error(w, "Job queue is unavailable.", http.StatusServiceUnavailable)
+		return
+	}
+	user, _ := middleware.User(r)
+	retried, err := s.jobs.Retry(r.Context(), id, "user:"+strconv.FormatInt(user.ID, 10))
+	w.Header().Set("Cache-Control", "no-store")
+	switch {
+	case err != nil:
+		s.jobError(w, r, "job retry failed", err)
+	case !retried:
+		http.Redirect(w, r, "/admin/jobs?notice=job-not-dead", http.StatusSeeOther)
+	default:
+		http.Redirect(w, r, "/admin/jobs?notice=job-retried", http.StatusSeeOther)
+	}
+}
+
+func (s *site) jobsPage(w http.ResponseWriter, r *http.Request) {
+	if s.jobs == nil {
+		http.Error(w, "Job queue is unavailable.", http.StatusServiceUnavailable)
+		return
+	}
+	ctx := r.Context()
+	stats, err := s.jobs.Stats(ctx)
+	if err != nil {
+		s.jobError(w, r, "job counts failed", err)
+		return
+	}
+	dead, err := s.jobs.List(ctx, outbox.Filter{State: outbox.StateDead, Limit: 100})
+	if err != nil {
+		s.jobError(w, r, "dead job listing failed", err)
+		return
+	}
+	s.render(w, r, http.StatusOK, "app/jobs", "Job queue", pageData{JobStats: stats, DeadJobs: dead})
+}
+
+func (s *site) jobError(w http.ResponseWriter, r *http.Request, message string, err error) {
+	s.log.ErrorContext(r.Context(), message, "error_class", fmt.Sprintf("%T", err))
+	s.render(w, r, http.StatusInternalServerError, "plain/server-error", "Something went wrong")
 }
 
 func (s *site) redirectNotice(w http.ResponseWriter, r *http.Request, code string) {

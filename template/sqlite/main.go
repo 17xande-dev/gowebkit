@@ -19,8 +19,10 @@ import (
 	"github.com/17xande-dev/gowebkit/template/sqlite/internal/config"
 	"github.com/17xande-dev/gowebkit/template/sqlite/internal/db"
 	"github.com/17xande-dev/gowebkit/template/sqlite/internal/handler"
+	"github.com/17xande-dev/gowebkit/template/sqlite/internal/jobs"
 	"github.com/17xande-dev/gowebkit/template/sqlite/internal/mail"
 	"github.com/17xande-dev/gowebkit/template/sqlite/internal/store"
+	"github.com/17xande-dev/outbox"
 	"github.com/17xande-dev/password"
 )
 
@@ -43,9 +45,9 @@ func execute(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("server", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	check := flags.Bool("check-config", false, "validate configuration and exit")
-	up := flags.Bool("migrate", false, "apply pending database migrations and exit")
-	status := flags.Bool("migrate-status", false, "read database migration status and exit")
-	down := flags.Bool("migrate-down", false, "roll back one database migration and exit")
+	up := flags.Bool("migrate", false, "apply pending application and outbox migrations and exit")
+	status := flags.Bool("migrate-status", false, "read application and outbox migration status and exit")
+	down := flags.Bool("migrate-down", false, "roll back one application migration and exit")
 	reset := flags.String("reset-password", "", "set a new password for the account with this `email`, read from standard input, and exit")
 	passwordFile := flags.String("password-file", "", "with -reset-password, read the new password from this `file` instead of standard input")
 	if err := flags.Parse(args); err != nil {
@@ -115,7 +117,11 @@ func printMigrationStatus(ctx context.Context, cfg config.DB, out io.Writer) err
 		if migration.Applied {
 			state = "applied " + migration.AppliedAt.UTC().Format(time.RFC3339)
 		}
-		if _, err := fmt.Fprintf(out, "%04d %s\n", migration.Version, state); err != nil {
+		prefix := ""
+		if migration.Outbox {
+			prefix = "outbox "
+		}
+		if _, err := fmt.Fprintf(out, "%s%04d %s\n", prefix, migration.Version, state); err != nil {
 			return err
 		}
 	}
@@ -134,7 +140,11 @@ func runServer(ctx context.Context, cfg config.Config, log *slog.Logger, open fu
 	if err != nil {
 		return fmt.Errorf("initialize mail: %w", err)
 	}
-	opts := []handler.Option{handler.WithMail(sender, delivering)}
+	queue, err := jobs.New(d, sender, cfg.SiteName, outbox.Options{Logger: log, KeepDone: cfg.JobKeepDone})
+	if err != nil {
+		return fmt.Errorf("initialize jobs: %w", err)
+	}
+	opts := []handler.Option{handler.WithJobs(queue, delivering)}
 	backups := d.Backups(cfg.DB)
 	if backups != nil {
 		opts = append(opts, handler.WithBackups(backups.Newest))
@@ -160,7 +170,7 @@ func runServer(ctx context.Context, cfg config.Config, log *slog.Logger, open fu
 	sweepDone := make(chan struct{})
 	go func() {
 		defer close(sweepDone)
-		runSessionSweep(sweepCtx, log, accounts.SweepSessions, cfg.SessionLifetime, sweepTicker.C)
+		runSessionSweep(sweepCtx, log, accounts.SweepSessions, cfg.SessionLifetime, queue.Purge, sweepTicker.C)
 	}()
 	defer func() {
 		stopSweep()
@@ -186,6 +196,16 @@ func runServer(ctx context.Context, cfg config.Config, log *slog.Logger, open fu
 	} else {
 		log.Info("the application makes no database backups", "note", db.BackupsNote)
 	}
+	queue.Start(ctx)
+	defer func() {
+		// Stop is bounded per call. Keep the pool open until it confirms
+		// that every worker has reached the end of its database work.
+		if stopErr := queue.Stop(); stopErr != nil {
+			log.Warn("waiting for job worker to stop")
+			for queue.Stop() != nil {
+			}
+		}
+	}()
 	return serve(ctx, srv, ln, cfg.ShutdownTimeout)
 }
 

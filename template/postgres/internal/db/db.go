@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/config"
+	"github.com/17xande-dev/outbox/pgxstore"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -70,7 +72,7 @@ func LogStartupWarnings(log *slog.Logger, cfg config.Config) {
 // Open connects, applies pending migrations and returns the pool. All schema
 // changes go through migrations, not startup statements.
 func Open(ctx context.Context, cfg config.DB) (*DB, error) {
-	return migrate(ctx, cfg, func(ctx context.Context, p *goose.Provider, sqlDB *sql.DB) error {
+	return migrate(ctx, cfg, func(ctx context.Context, p *goose.Provider, sqlDB *sql.DB, pool *pgxpool.Pool) error {
 		if err := checkHistory(ctx, sqlDB); err != nil {
 			return err
 		}
@@ -81,8 +83,11 @@ func Open(ctx context.Context, cfg config.DB) (*DB, error) {
 		if current > target {
 			return newerThanBuild(current, target)
 		}
-		_, err = p.Up(ctx)
-		return err
+		// The application's schema commits first; the queue's tables follow.
+		if _, err = p.Up(ctx); err != nil {
+			return err
+		}
+		return pgxstore.Migrate(ctx, pool, nil)
 	})
 }
 
@@ -105,7 +110,7 @@ func MigrateDown(ctx context.Context, cfg config.DB) error {
 	return d.Close()
 }
 
-func rollbackOne(ctx context.Context, p *goose.Provider, sqlDB *sql.DB) error {
+func rollbackOne(ctx context.Context, p *goose.Provider, sqlDB *sql.DB, _ *pgxpool.Pool) error {
 	// Reading versions would create goose's table on a database that has
 	// none; a rollback must not change anything.
 	if exists, err := versionTableExists(ctx, sqlDB); err != nil {
@@ -205,7 +210,7 @@ func provider(sqlDB *sql.DB) (*goose.Provider, error) {
 // migrate holds the migration lock from before the first query until the step
 // has finished, so concurrent boots queue instead of racing to create the same
 // tables.
-func migrate(ctx context.Context, cfg config.DB, step func(context.Context, *goose.Provider, *sql.DB) error) (d *DB, err error) {
+func migrate(ctx context.Context, cfg config.DB, step func(context.Context, *goose.Provider, *sql.DB, *pgxpool.Pool) error) (d *DB, err error) {
 	pool, err := connect(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -232,7 +237,7 @@ func migrate(ctx context.Context, cfg config.DB, step func(context.Context, *goo
 	if err != nil {
 		return nil, err
 	}
-	if err := step(ctx, p, sqlDB); err != nil {
+	if err := step(ctx, p, sqlDB, pool); err != nil {
 		return nil, fmt.Errorf("migrate database: %w", err)
 	}
 	return &DB{pool}, nil
@@ -244,32 +249,25 @@ func migrate(ctx context.Context, cfg config.DB, step func(context.Context, *goo
 // while a deployment (one schema) does. A crashed holder's session ends and
 // the server releases the lock.
 func migrationLock(ctx context.Context, pool *pgxpool.Pool) (func() error, error) {
-	conn, err := pool.Acquire(ctx)
+	// Keep both slots of a minimum-size pool available for the outbox's own
+	// lock and goose connection. This session exists only while migrating.
+	connectCtx, cancelConnect := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelConnect()
+	conn, err := pgx.ConnectConfig(connectCtx, pool.Config().ConnConfig)
 	if err != nil {
-		return nil, fmt.Errorf("acquire migration lock connection: %w", err)
+		// Connection errors may include the user or address.
+		return nil, errors.New("open migration lock connection")
+	}
+	release := func() error {
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		return conn.Close(closeCtx)
 	}
 	const key = `hashtextextended('app.migrate:' || coalesce(current_schema(), ''), 0)`
 	wait, cancel := context.WithTimeout(ctx, lockWait)
 	defer cancel()
 	if _, err := conn.Exec(wait, `SELECT pg_advisory_lock(`+key+`)`); err != nil {
-		// A cancelled wait leaves the connection in an unknown state.
-		_ = conn.Hijack().Close(context.WithoutCancel(ctx))
-		return nil, fmt.Errorf("acquire migration lock (another process may be migrating this database): %w", err)
+		return nil, errors.Join(fmt.Errorf("acquire migration lock (another process may be migrating this database): %w", err), release())
 	}
-	return func() error {
-		unlock, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		var released bool
-		err := conn.QueryRow(unlock, `SELECT pg_advisory_unlock(`+key+`)`).Scan(&released)
-		if err != nil || !released {
-			// Ending the session is what really releases an advisory lock.
-			closeErr := conn.Hijack().Close(unlock)
-			if err == nil {
-				err = errors.New("the lock was not held")
-			}
-			return errors.Join(err, closeErr)
-		}
-		conn.Release()
-		return nil
-	}, nil
+	return release, nil
 }

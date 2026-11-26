@@ -33,7 +33,7 @@ DROP TABLE latest;`)},
 	if _, err := p.Up(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := rollbackOne(ctx, p); err != nil {
+	if err := rollbackOne(ctx, p, d); err != nil {
 		t.Fatalf("roll back second migration: %v", err)
 	}
 	if current, _, err := p.GetVersions(ctx); err != nil || current != 1 {

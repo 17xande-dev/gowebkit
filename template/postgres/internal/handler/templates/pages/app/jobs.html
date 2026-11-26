@@ -1,0 +1,27 @@
+{{define "content"}}
+<h1>Job queue</h1>
+<p><a href="/admin/users">Back to Users</a></p>
+<section class="card">
+  <h2>Queue counts</h2>
+  <p>Pending: {{.JobStats.Pending}} · Running: {{.JobStats.Running}} · Done: {{.JobStats.Done}} · Dead: {{.JobStats.Dead}} · Discarded: {{.JobStats.Discarded}}</p>
+</section>
+<section class="card">
+  <h2>Dead jobs</h2>
+  {{if .DeadJobs}}
+  <p>Showing up to 100 jobs, newest first.</p>
+  <ul>
+    {{range .DeadJobs}}
+    <li>
+      <p>#{{.ID}} · {{.Kind}} · {{.Attempts}}/{{.MaxAttempts}} attempts · {{.LastError}}</p>
+      <form method="post" action="/admin/jobs/{{.ID}}/retry">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <button type="submit">Retry</button>
+      </form>
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p>No dead jobs.</p>
+  {{end}}
+</section>
+{{end}}

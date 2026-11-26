@@ -78,14 +78,15 @@ func TestEmptySettingsUseDefaults(t *testing.T) {
 	cfg, err := from(map[string]string{
 		"PORT": "", "BASE_URL": "", "COOKIE_SECURE": "", "SITE_NAME": "", "SESSION_IDLE": "",
 		"SESSION_ABSOLUTE": "", "CLIENT_IP_SOURCE": "", "PASSWORD_CONCURRENCY": "", "LOG_LEVEL": "",
-		"LOG_FORMAT": "", "SHUTDOWN_TIMEOUT": "", "SMTP_PORT": "", "SMTP_TLS": "",
+		"LOG_FORMAT": "", "SHUTDOWN_TIMEOUT": "", "JOB_KEEP_DONE": "", "SMTP_PORT": "", "SMTP_TLS": "",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Port != 8080 || cfg.BaseURL != "http://localhost:8080" || cfg.CookieSecure || cfg.SiteName != "My App" ||
 		cfg.SessionLifetime != session.Default || cfg.PasswordConcurrency != 2 || cfg.LogLevel != 0 || cfg.LogFormat != "json" ||
-		cfg.ShutdownTimeout != 15*time.Second || cfg.SMTP.Port != 587 || cfg.SMTP.TLS != mailer.TLSStartTLS {
+		cfg.ShutdownTimeout != 15*time.Second || cfg.JobKeepDone != 14*24*time.Hour ||
+		cfg.SMTP.Port != 587 || cfg.SMTP.TLS != mailer.TLSStartTLS {
 		t.Fatalf("empty settings did not use defaults: %+v", cfg)
 	}
 }
@@ -136,6 +137,7 @@ func TestInvalidConfig(t *testing.T) {
 		{"log level", map[string]string{"LOG_LEVEL": "trace"}, "LOG_LEVEL"},
 		{"log format", map[string]string{"LOG_FORMAT": "xml"}, "LOG_FORMAT"},
 		{"shutdown", map[string]string{"SHUTDOWN_TIMEOUT": "-1s"}, "SHUTDOWN_TIMEOUT"},
+		{"job retention", map[string]string{"JOB_KEEP_DONE": "0s"}, "JOB_KEEP_DONE"},
 		{"SMTP port", map[string]string{"SMTP_PORT": "0"}, "SMTP_PORT"},
 		{"SMTP TLS", map[string]string{"SMTP_TLS": "optional"}, "SMTP_TLS"},
 		{"SMTP host", map[string]string{"SMTP_HOST": "https://app.example"}, "SMTP_HOST"},
@@ -171,14 +173,15 @@ func TestOverrides(t *testing.T) {
 		"SITE_NAME": "Sample", "SESSION_IDLE": "1h", "SESSION_ABSOLUTE": "10h",
 		"SMTP_HOST": "relay.example", "SMTP_PORT": "1025", "SMTP_TLS": "none", "EMAIL_FROM": "sender@example.com",
 		"CLIENT_IP_SOURCE": "forwarded", "LOG_LEVEL": "debug", "LOG_FORMAT": "text", "SHUTDOWN_TIMEOUT": "2s",
-		"PASSWORD_CONCURRENCY": "3",
+		"PASSWORD_CONCURRENCY": "3", "JOB_KEEP_DONE": "72h",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.BaseURL != "http://localhost:9000" || cfg.SiteName != "Sample" || cfg.SessionLifetime.Idle != time.Hour ||
 		cfg.SessionLifetime.Absolute != 10*time.Hour || cfg.SMTP.Port != 1025 || cfg.SMTP.TLS != mailer.TLSNone ||
-		cfg.LogFormat != "text" || cfg.ShutdownTimeout != 2*time.Second || cfg.PasswordConcurrency != 3 {
+		cfg.LogFormat != "text" || cfg.ShutdownTimeout != 2*time.Second || cfg.PasswordConcurrency != 3 ||
+		cfg.JobKeepDone != 72*time.Hour {
 		t.Fatalf("overrides not applied: %+v", cfg)
 	}
 }

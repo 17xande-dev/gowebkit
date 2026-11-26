@@ -18,9 +18,10 @@ create the first admin. Do not share the token or log output containing it.
 After setup, the home page requires sign-in and `/setup` is no longer available.
 Admins manage accounts at `/admin/users`: create an account with a temporary
 password (the person must change it at first sign-in), change a role, disable or
-enable an account, reset a password, check the newest backup date and send a
-test message. The roles are `admin` and `member`; the last enabled admin cannot
-be demoted or disabled. Anyone signed in can change their own password at
+enable an account, reset a password, check the newest backup date and queue a
+test message. The [job queue](docs/operations.md#job-queue) shows delivery
+status and lets admins retry dead jobs. The roles are `admin` and `member`;
+the last enabled admin cannot be demoted or disabled. Anyone signed in can change their own password at
 `/account/password`.
 
 **Development only:** the Compose service uses plain HTTP and the published,
@@ -64,6 +65,7 @@ configuration problems together and does not echo setting values.
 | `LOG_LEVEL` | `info` | Minimum severity: `debug`, `info`, `warn` or `error`. |
 | `LOG_FORMAT` | `json` | `json` or `text` output. |
 | `SHUTDOWN_TIMEOUT` | `15s` | Positive Go duration for draining HTTP requests. |
+| `JOB_KEEP_DONE` | `336h` | Positive Go duration for keeping done and discarded jobs. Dead jobs are kept until handled. |
 | `SMTP_HOST` | Unset | Hostname or IP without a port. Empty disables mail. |
 | `SMTP_PORT` | `587` | Integer 1–65535; relay port. |
 | `SMTP_USERNAME` | Unset | Non-blank relay login, paired with a password; requires TLS. |
@@ -122,3 +124,8 @@ and Down SQL. The shared `websec`, `password`, `ratelimit` and `mailer`
 packages provide cookie, session and request-forgery mechanisms, password
 hashing, bounded rate limiting and mail delivery without an application
 framework.
+
+`outbox` runs durable background work in the application database. The mail
+test shows how to register a job, classify failures and give admins a way to
+retry. See [operations](docs/operations.md#job-queue) for delivery guarantees
+and upgrades that change the queue schema.

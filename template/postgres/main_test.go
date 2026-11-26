@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -20,8 +21,12 @@ import (
 
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/auth"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/config"
+	"github.com/17xande-dev/gowebkit/template/postgres/internal/db"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/dbtest"
+	"github.com/17xande-dev/gowebkit/template/postgres/internal/jobs"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/store"
+	"github.com/17xande-dev/mailer"
+	"github.com/17xande-dev/outbox"
 	"github.com/17xande-dev/websec/webtest"
 )
 
@@ -118,7 +123,7 @@ func setTestEnv(t *testing.T, port int) {
 		"PORT": strconv.Itoa(port), "BASE_URL": "http://localhost:" + strconv.Itoa(port),
 		"COOKIE_SECURE": "false", "SITE_NAME": "Sample", "SETUP_TOKEN": "", "SETUP_TOKEN_FILE": "",
 		"SESSION_IDLE": "2h", "SESSION_ABSOLUTE": "12h", "CLIENT_IP_SOURCE": "remote", "PASSWORD_CONCURRENCY": "2",
-		"LOG_LEVEL": "info", "LOG_FORMAT": "json", "SHUTDOWN_TIMEOUT": "15s",
+		"LOG_LEVEL": "info", "LOG_FORMAT": "json", "SHUTDOWN_TIMEOUT": "15s", "JOB_KEEP_DONE": "336h",
 		"SMTP_HOST": "", "SMTP_PORT": "587", "SMTP_USERNAME": "", "SMTP_PASSWORD": "", "SMTP_PASSWORD_FILE": "",
 		"SMTP_TLS": "starttls", "EMAIL_FROM": "",
 	} {
@@ -224,6 +229,102 @@ func TestGracefulShutdownWaitsForActiveRequest(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("server did not finish after draining requests")
+	}
+	t.Run("job worker", testShutdownJoinsJobWorker)
+}
+
+type shutdownJobEvents struct {
+	listeningAddress
+	transition chan<- struct{}
+	release    <-chan struct{}
+}
+
+func (e shutdownJobEvents) Write(p []byte) (int, error) {
+	var event struct{ Msg string }
+	if err := json.Unmarshal(p, &event); err != nil {
+		return 0, err
+	}
+	if event.Msg == "job transition" {
+		close(e.transition)
+		<-e.release
+	}
+	return e.listeningAddress.Write(p)
+}
+
+func testShutdownJoinsJobWorker(t *testing.T) {
+	setTestEnv(t, 8080)
+	dbtest.SetEnv(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Port = 0
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	transition, blocked := make(chan struct{}), make(chan struct{})
+	release := sync.OnceFunc(func() { close(blocked) })
+	defer release()
+	events := shutdownJobEvents{make(listeningAddress, 1), transition, blocked}
+	opened := make(chan *db.DB, 1)
+	open := func(ctx context.Context, cfg config.DB) (*db.DB, error) {
+		d, err := db.Open(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		queue, err := jobs.New(d, mailer.Discard{}, "Sample", outbox.Options{})
+		if err != nil {
+			return nil, errors.Join(err, d.Close())
+		}
+		if _, _, err := queue.EnqueueNow(ctx, outbox.Message{Kind: jobs.MailTest, Payload: []byte("worker-test@example.com")}); err != nil {
+			return nil, errors.Join(err, d.Close())
+		}
+		opened <- d
+		return d, nil
+	}
+	done := make(chan error, 1)
+	log := slog.New(slog.NewJSONHandler(events, nil))
+	go func() { done <- runServer(ctx, cfg, log, open, time.Hour) }()
+	var addr string
+	select {
+	case addr = <-events.listeningAddress:
+	case err := <-done:
+		t.Fatalf("server exited before listening: %v", err)
+	case <-ctx.Done():
+		t.Fatal("server did not listen")
+	}
+	d := <-opened
+	select {
+	case <-transition:
+	case err := <-done:
+		t.Fatalf("server exited before running its job: %v", err)
+	case <-ctx.Done():
+		t.Fatal("worker did not run the queued job")
+	}
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	awaitClosedListener(t, "127.0.0.1:"+port)
+	select {
+	case err := <-done:
+		t.Fatalf("server returned before the job worker finished: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := d.Ping(t.Context()); err != nil {
+		t.Fatalf("database closed before the job worker finished: %v", err)
+	}
+	release()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not return after the job worker finished")
+	}
+	if err := d.Ping(t.Context()); err == nil {
+		t.Fatal("database still open after shutdown")
 	}
 }
 

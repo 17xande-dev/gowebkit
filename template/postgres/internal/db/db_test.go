@@ -3,6 +3,7 @@ package db_test
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,8 @@ import (
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/dbtest"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3/database"
 )
 
 // holdMigrationLock takes the lock a boot takes, on a connection of the test's
@@ -125,7 +128,7 @@ func TestConcurrentOpensQueueOnTheMigrationLock(t *testing.T) {
 		}
 	}
 	status, err := db.Status(t.Context(), cfg)
-	if err != nil || len(status) != 1 || !status[0].Applied {
+	if err != nil || len(status) != 2 || !status[0].Applied || !status[1].Outbox || !status[1].Applied {
 		t.Fatalf("status after the boots = %+v, %v", status, err)
 	}
 }
@@ -164,8 +167,9 @@ func waitForSessions(t *testing.T, cfg config.DB, fragment string, want int, don
 func TestStatusAndExistsDoNotChangeAnUnmigratedSchema(t *testing.T) {
 	cfg := dbtest.Config(t)
 	status, err := db.Status(t.Context(), cfg)
-	if err != nil || len(status) != 1 || status[0].Version != 1 || status[0].Applied {
-		t.Fatalf("status = %+v, %v; want one pending migration", status, err)
+	if err != nil || len(status) != 2 || status[0].Version != 1 || status[0].Applied ||
+		status[1].Version != 1 || !status[1].Outbox || status[1].Applied {
+		t.Fatalf("status = %+v, %v; want pending app and outbox migrations", status, err)
 	}
 	if exists, err := db.Exists(t.Context(), cfg); err != nil || exists {
 		t.Fatalf("exists = %v, %v", exists, err)
@@ -180,8 +184,57 @@ func TestStatusAndExistsDoNotChangeAnUnmigratedSchema(t *testing.T) {
 		t.Fatalf("exists after migrating = %v, %v", exists, err)
 	}
 	status, err = db.Status(t.Context(), cfg)
-	if err != nil || len(status) != 1 || !status[0].Applied || status[0].AppliedAt.IsZero() {
+	if err != nil || len(status) != 2 || !status[0].Applied || status[0].AppliedAt.IsZero() ||
+		!status[1].Applied || status[1].AppliedAt.IsZero() {
 		t.Fatalf("status after migrating = %+v, %v", status, err)
+	}
+}
+
+func TestMigrateWorksWithTwoConnectionPool(t *testing.T) {
+	cfg := dbtest.Config(t)
+	dsn, err := url.Parse(cfg.ConnectionString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := dsn.Query()
+	q.Set("pool_max_conns", "2")
+	dsn.RawQuery = q.Encode()
+	cfg = dbtest.ConfigWithURL(dsn.String())
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if err := db.Migrate(ctx, cfg); err != nil {
+		t.Fatalf("two-connection pool could not migrate the app and queue: %v", err)
+	}
+}
+
+func TestAppMigrationPrecedesOutboxMigration(t *testing.T) {
+	cfg := dbtest.Config(t)
+	ctx := t.Context()
+	pool, err := db.Connect(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	sqlDB := stdlib.OpenDBFromPool(pool)
+	defer sqlDB.Close()
+	history, err := database.NewStore(database.DialectPostgres, "goose_db_version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := history.CreateVersionTable(ctx, sqlDB); err != nil {
+		t.Fatal(err)
+	}
+	if err := history.Insert(ctx, sqlDB, database.InsertRequest{Version: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, `CREATE TABLE outbox_jobs (id bigint)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(ctx, cfg); err == nil || !strings.Contains(err.Error(), "migration history is unknown") {
+		t.Fatalf("outbox migration did not refuse unknown history: %v", err)
+	}
+	if version, err := history.GetLatestVersion(ctx, sqlDB); err != nil || version != 1 {
+		t.Fatalf("application did not migrate before the outbox failed: version=%d, error=%v", version, err)
 	}
 }
 

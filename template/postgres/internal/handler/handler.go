@@ -11,10 +11,10 @@ import (
 
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/auth"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/config"
-	"github.com/17xande-dev/gowebkit/template/postgres/internal/mail"
+	"github.com/17xande-dev/gowebkit/template/postgres/internal/jobs"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/middleware"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/store"
-	"github.com/17xande-dev/mailer"
+	"github.com/17xande-dev/outbox"
 	"github.com/17xande-dev/ratelimit"
 	"github.com/17xande-dev/ratelimit/clientip"
 	"github.com/17xande-dev/websec/cookie"
@@ -32,14 +32,12 @@ func New(cfg config.Config, log *slog.Logger, accounts *store.Store, ping func(c
 	return h, protected, nil
 }
 
-// Option supplies an optional collaborator. Without one the site discards mail
-// and reports no backups, which is what a deployment with neither configured has.
+// Option supplies a collaborator for the admin page.
 type Option func(*site)
 
-// WithMail sets the transport for administrator test messages; delivering says
-// whether it reaches anyone, so the admin page can tell the truth about it.
-func WithMail(sender mailer.Sender, delivering bool) Option {
-	return func(s *site) { s.mail, s.mailDelivers = sender, delivering }
+// WithJobs supplies the queue and whether its mail transport delivers messages.
+func WithJobs(queue *jobs.Queue, delivering bool) Option {
+	return func(s *site) { s.jobs, s.mailDelivers = queue, delivering }
 }
 
 // WithBackups sets the lookup behind the admin page's newest-backup line.
@@ -91,7 +89,6 @@ func newSite(cfg config.Config, log *slog.Logger, accounts *store.Store, opts ..
 			RetryAfter: 10 * time.Second, Exceeded: http.HandlerFunc(rateRefusal),
 		}),
 		accountLimit: accountLimit,
-		mail:         mail.Discard(log),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -113,7 +110,7 @@ type site struct {
 	clientIP     clientip.Source
 	secretLimit  func(http.Handler) http.Handler
 	accountLimit *ratelimit.Limiter
-	mail         mailer.Sender
+	jobs         *jobs.Queue
 	mailDelivers bool
 	newestBackup func() (time.Time, bool, error)
 	// noBackupsNote overrides the default line when there is no backup lookup.
@@ -136,6 +133,9 @@ type pageData struct {
 	Roles         []auth.Role
 	BackupLine    string
 	MailDelivers  bool
+	HasJobs       bool
+	JobStats      outbox.Stats
+	DeadJobs      []outbox.Info
 	MustChange    bool
 	EnabledAdmins int64
 }
@@ -152,8 +152,9 @@ var notices = map[string]string{
 	"password-reset":   "A temporary password was set and the account's sessions ended.",
 	"last-admin":       "That change was refused: at least one enabled admin must remain.",
 	"email-in-use":     "That email address already has an account.",
-	"mail-sent":        "A test message was sent to your address.",
-	"mail-failed":      "The test message could not be sent. See the server log.",
+	"mail-queued":      "A test message was queued for your address.",
+	"job-retried":      "The job was queued to run again.",
+	"job-not-dead":     "The job is no longer available to retry.",
 }
 
 func (s *site) routes(ping func(context.Context) error) (http.Handler, []string) {
@@ -189,6 +190,8 @@ func (s *site) routesWithAdmin(ping func(context.Context) error) (http.Handler, 
 	protect("POST /admin/users/{id}/disabled", false, true, http.HandlerFunc(s.userDisabled))
 	protect("POST /admin/users/{id}/password", false, true, http.HandlerFunc(s.userPassword))
 	protect("POST /admin/mail-test", false, true, s.secretLimit(http.HandlerFunc(s.mailTest)))
+	protect("GET /admin/jobs", false, true, http.HandlerFunc(s.jobsPage))
+	protect("POST /admin/jobs/{id}/retry", false, true, http.HandlerFunc(s.retryJob))
 	mux.Handle("GET /healthz", Healthz(s.log, ping))
 	mux.Handle("GET /static/{name}", s.assets.serve(s.notFound))
 	mux.HandleFunc("GET /login", s.loginPage)

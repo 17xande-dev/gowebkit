@@ -25,7 +25,7 @@ func TestPagesDefineContent(t *testing.T) {
 		}
 		covered[route.page] = true
 	}
-	if len(pages) < 8 || len(pages) != len(covered) {
+	if len(pages) < 9 || len(pages) != len(covered) {
 		t.Fatalf("must cover every page; found %d pages and %d route fixtures", len(pages), len(covered))
 	}
 	fixture := fstest.MapFS{
@@ -101,7 +101,7 @@ func checkRendered(t *testing.T, check func(t *testing.T, markup string)) {
 			check(t, res.Body)
 		})
 	}
-	if pagesChecked < 8 {
+	if pagesChecked < 9 {
 		t.Errorf("checked only %d rendered pages", pagesChecked)
 	}
 }

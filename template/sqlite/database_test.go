@@ -63,13 +63,14 @@ func TestMigrationCommands(t *testing.T) {
 	command := func(flag, want string) {
 		t.Helper()
 		var out, stderr bytes.Buffer
-		if err := run([]string{flag}, &out, &stderr); err != nil || stderr.Len() != 0 || !strings.HasPrefix(out.String(), want) {
+		if err := run([]string{flag}, &out, &stderr); err != nil || stderr.Len() != 0 || !strings.Contains(out.String(), want) {
 			t.Fatalf("%s: stdout=%q stderr=%q error=%v; want %q", flag, &out, &stderr, err, want)
 		}
 	}
-	command("-migrate-status", "0001 pending\n")
+	command("-migrate-status", "0001 pending\noutbox 0001 pending\n")
 	command("-migrate", "Database migrations applied\n")
 	command("-migrate-status", "0001 applied ")
+	command("-migrate-status", "\noutbox 0001 applied ")
 }
 
 func TestMigrationDownRefusals(t *testing.T) {

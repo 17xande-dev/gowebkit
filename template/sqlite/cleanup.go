@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"time"
@@ -9,7 +10,7 @@ import (
 	"github.com/17xande-dev/websec/session"
 )
 
-func runSessionSweep(ctx context.Context, log *slog.Logger, sweep func(context.Context, session.Lifetime, time.Time) (int64, error), life session.Lifetime, ticks <-chan time.Time) {
+func runSessionSweep(ctx context.Context, log *slog.Logger, sweep func(context.Context, session.Lifetime, time.Time) (int64, error), life session.Lifetime, purge func(context.Context) (int, error), ticks <-chan time.Time) {
 	for ctx.Err() == nil {
 		select {
 		case <-ctx.Done():
@@ -27,6 +28,11 @@ func runSessionSweep(ctx context.Context, log *slog.Logger, sweep func(context.C
 			}
 		} else if n != 0 {
 			log.InfoContext(ctx, "expired sessions removed", "count", n)
+		}
+		if ctx.Err() == nil {
+			if _, err := purge(ctx); err != nil && ctx.Err() == nil {
+				log.ErrorContext(ctx, "job purge failed", "error_class", fmt.Sprintf("%T", err))
+			}
 		}
 	}
 }

@@ -83,7 +83,38 @@ func TestConcurrentFreshOpens(t *testing.T) {
 	if opened != n {
 		t.Fatalf("opened %d/%d pools", opened, n)
 	}
-	assertStatus(t, cfg, true)
+	assertStatus(t, cfg, true, true)
+}
+
+func TestAppMigrationPrecedesOutboxMigration(t *testing.T) {
+	cfg := config.DB{DBPath: filepath.Join(t.TempDir(), "app.db")}
+	pool, err := sql.Open("sqlite", cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	history, err := goosestrict.NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	if err := history.CreateVersionTable(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if err := history.Insert(ctx, pool, database.InsertRequest{Version: 0}); err != nil {
+		t.Fatal(err)
+	}
+	// The outbox refuses its unversioned table. The app baseline must
+	// already have committed when that refusal reaches the caller.
+	if _, err := pool.ExecContext(ctx, `CREATE TABLE outbox_jobs (id INTEGER) STRICT`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(ctx, cfg); err == nil || !strings.Contains(err.Error(), "migration history is unknown") {
+		t.Fatalf("outbox migration did not refuse unknown history: %v", err)
+	}
+	if version, err := history.GetLatestVersion(ctx, pool); err != nil || version != 1 {
+		t.Fatalf("application did not migrate before the outbox failed: version=%d, error=%v", version, err)
+	}
 }
 
 func TestOpenWaitsForMigrationLockBeforeFirstQuery(t *testing.T) {
@@ -129,8 +160,8 @@ func TestSchemaTablesAreStrict(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if n < 4 {
-		t.Errorf("checked %d tables, want at least 4 including migration history", n)
+	if n < 6 {
+		t.Errorf("checked %d tables, want at least 6 including the queue and both histories", n)
 	}
 }
 
@@ -139,7 +170,7 @@ func TestMigrateUpDownUp(t *testing.T) {
 	if err := db.Migrate(t.Context(), cfg); err != nil {
 		t.Fatal(err)
 	}
-	assertStatus(t, cfg, true)
+	assertStatus(t, cfg, true, true)
 	// The baseline Down SQL remains reversible in an isolated database
 	// even though the operator command will not drop those tables.
 	d, err := db.Open(t.Context(), cfg)
@@ -154,15 +185,15 @@ func TestMigrateUpDownUp(t *testing.T) {
 	if _, err := p.Down(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	assertStatus(t, cfg, false)
-	if got := tableCount(t, cfg.DBPath); got != 1 {
-		t.Fatalf("Down kept %d tables, want only the migration history", got)
+	assertStatus(t, cfg, false, true)
+	if got := tableCount(t, cfg.DBPath); got != 3 {
+		t.Fatalf("application Down kept %d tables, want app history, queue and queue history", got)
 	}
 	if err := db.Migrate(t.Context(), cfg); err != nil {
 		t.Fatal(err)
 	}
-	assertStatus(t, cfg, true)
-	if got := tableCount(t, cfg.DBPath); got < 4 {
+	assertStatus(t, cfg, true, true)
+	if got := tableCount(t, cfg.DBPath); got < 6 {
 		t.Fatalf("second Up left only %d tables", got)
 	}
 }
@@ -244,7 +275,7 @@ func TestStatusReadsReadOnlyFile(t *testing.T) {
 	if err := os.Chmod(cfg.DBPath, 0o400); err != nil {
 		t.Fatal(err)
 	}
-	assertStatus(t, cfg, true)
+	assertStatus(t, cfg, true, true)
 	for _, suffix := range []string{"-wal", "-shm"} {
 		if _, err := os.Stat(cfg.DBPath + suffix); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("status created %s sidecar: %v", suffix, err)
@@ -254,38 +285,43 @@ func TestStatusReadsReadOnlyFile(t *testing.T) {
 
 func TestStatusDoesNotInitializeDatabase(t *testing.T) {
 	cfg := config.DB{DBPath: filepath.Join(t.TempDir(), "missing", "sample #?.db")}
-	assertStatus(t, cfg, false)
+	assertStatus(t, cfg, false, false)
 	if _, err := os.Stat(filepath.Dir(cfg.DBPath)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("status created the database directory: %v", err)
 	}
 	if err := os.Mkdir(filepath.Dir(cfg.DBPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	assertStatus(t, cfg, false)
+	assertStatus(t, cfg, false, false)
 	if _, err := os.Stat(cfg.DBPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("status created the database: %v", err)
 	}
 	if err := os.WriteFile(cfg.DBPath, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	assertStatus(t, cfg, false)
+	assertStatus(t, cfg, false, false)
 	if got := tableCount(t, cfg.DBPath); got != 0 {
 		t.Fatalf("status created %d tables in an empty database", got)
 	}
 	if err := db.Migrate(t.Context(), cfg); err != nil {
 		t.Fatal(err)
 	}
-	assertStatus(t, cfg, true)
+	assertStatus(t, cfg, true, true)
 }
 
-func assertStatus(t *testing.T, cfg config.DB, applied bool) {
+func assertStatus(t *testing.T, cfg config.DB, appApplied, queueApplied bool) {
 	t.Helper()
 	rows, err := db.Status(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].Version != 1 || rows[0].Applied != applied || rows[0].AppliedAt.IsZero() == applied {
-		t.Fatalf("migration status = %+v, want a single migration with applied=%v", rows, applied)
+	if len(rows) != 2 {
+		t.Fatalf("migration status = %+v, want app and outbox migrations", rows)
+	}
+	for i, applied := range []bool{appApplied, queueApplied} {
+		if row := rows[i]; row.Version != 1 || row.Outbox != (i == 1) || row.Applied != applied || row.AppliedAt.IsZero() == applied {
+			t.Errorf("migration status row %d = %+v, want applied=%v", i, row, applied)
+		}
 	}
 }
 
