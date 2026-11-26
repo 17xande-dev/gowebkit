@@ -21,9 +21,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/17xande-dev/env"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/config"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/db"
+
+	"github.com/17xande-dev/env"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
