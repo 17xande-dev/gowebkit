@@ -99,6 +99,9 @@ func TestMigrationDownRefusals(t *testing.T) {
 			dbtest.SetEnv(t)
 			cfg := mustConfig(t)
 			var want string
+			// Set by the baseline case: the queue's tables and history as
+			// the rollback found them.
+			var queueState func() string
 			switch name {
 			case "unmigrated":
 				want = "nothing to roll back"
@@ -119,11 +122,29 @@ func TestMigrationDownRefusals(t *testing.T) {
 					}
 				})
 				want = "refusing to roll back the baseline migration; restore from a backup instead"
+				queueState = func() string {
+					var jobs, versions int
+					err := d.Pool().QueryRow(context.Background(), `SELECT (SELECT count(*) FROM outbox_jobs),
+						(SELECT count(*) FROM outbox_goose_version)`).Scan(&jobs, &versions)
+					if err != nil {
+						t.Fatalf("queue tables are missing after rollback: %v", err)
+					}
+					return fmt.Sprintf("jobs=%d versions=%d", jobs, versions)
+				}
+			}
+			var queueBefore string
+			if queueState != nil {
+				queueBefore = queueState()
 			}
 			var out, stderr bytes.Buffer
 			err := run([]string{"-migrate-down"}, &out, &stderr)
 			if err == nil || !strings.Contains(err.Error(), want) || out.Len() != 0 || stderr.Len() != 0 {
 				t.Errorf("rollback stdout=%q stderr=%q error=%v; want %q and no success output", &out, &stderr, err, want)
+			}
+			if queueState != nil {
+				if after := queueState(); after != queueBefore {
+					t.Errorf("rollback changed the queue: before %s, after %s", queueBefore, after)
+				}
 			}
 			if name == "unmigrated" {
 				if exists, err := db.Exists(t.Context(), cfg.DB); err != nil || exists {
