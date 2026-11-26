@@ -28,7 +28,10 @@ To port these changes into an app generated from v0.2.x:
    connection needs `pool_max_conns` of at least 3 to boot; with
    `pool_max_conns=2` its boot waits for a pool connection until the process
    is stopped. With the new lock the minimum stays 2, which `internal/config`
-   refuses to go below.
+   refuses to go below. Startup now opens up to `pool_max_conns` + 1 database
+   sessions, because that lock connection is outside the pool: a database role
+   whose connection limit equals `pool_max_conns` fails at startup, so raise
+   the limit by one.
 2. Port the queue construction, worker start and joined shutdown from
    `main.go`, and the purge call in `cleanup.go`. Port `JOB_KEEP_DONE` with
    the env loader, `.env.example` and README entry, then run `go mod tidy`.

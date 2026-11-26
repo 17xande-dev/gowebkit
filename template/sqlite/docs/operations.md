@@ -22,6 +22,11 @@ the application baseline. It does not create a database or touch queue tables,
 job data or the outbox migration history. To reverse a queue schema change,
 follow the queue release's rollback instructions and rehearse on a copy.
 
+With PostgreSQL, startup opens up to `pool_max_conns` + 1 database sessions:
+the migration lock uses one connection outside the pool. A database role whose
+connection limit equals `pool_max_conns` therefore fails at startup; raise the
+limit by one.
+
 Use `/healthz` for readiness. It pings the database with a two-second deadline
 and responds with `200 ok` or `503`; responses are not cached. Do not use a
 health response alone as evidence that a backup can be restored. The server
