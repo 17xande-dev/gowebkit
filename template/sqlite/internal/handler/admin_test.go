@@ -242,6 +242,13 @@ func TestMemberIsRefusedEveryAdminRoute(t *testing.T) {
 	c := a.signedIn(t, testEmail)
 	token := c.Page("/").Token()
 	before, _ := a.accounts.ListUsers(t.Context())
+	// Name the queue routes too, so dropping their admin flag fails here even
+	// if another route is added and keeps the count above the floor.
+	for _, pattern := range []string{"GET /admin/jobs", "POST /admin/jobs/{id}/retry"} {
+		if !slices.Contains(a.admins, pattern) {
+			t.Errorf("%s is not registered as an admin route", pattern)
+		}
+	}
 	webtest.MinCount(t, "admin routes", len(a.admins), 8)
 	for _, route := range webtest.Routes(t, a.admins, map[string]string{"id": "1"}) {
 		t.Run(route.Pattern, func(t *testing.T) {
