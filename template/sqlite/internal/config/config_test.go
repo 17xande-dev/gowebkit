@@ -140,10 +140,14 @@ func TestInvalidConfig(t *testing.T) {
 		{"SMTP TLS", map[string]string{"SMTP_TLS": "optional"}, "SMTP_TLS"},
 		{"SMTP host", map[string]string{"SMTP_HOST": "https://app.example"}, "SMTP_HOST"},
 		{"SMTP missing host", map[string]string{"EMAIL_FROM": "sender@example.com"}, "SMTP_HOST"},
+		{"SMTP password without host", map[string]string{"SMTP_PASSWORD": "secret-sample"}, "SMTP_HOST: is required"},
 		{"SMTP sender", map[string]string{"SMTP_HOST": "relay.example", "EMAIL_FROM": "invalid"}, "EMAIL_FROM"},
 		{"SMTP partial credentials", map[string]string{
 			"SMTP_HOST": "relay.example", "EMAIL_FROM": "sender@example.com", "SMTP_USERNAME": "sender",
 		}, "SMTP_PASSWORD"},
+		{"SMTP password without username", map[string]string{
+			"SMTP_HOST": "relay.example", "EMAIL_FROM": "sender@example.com", "SMTP_PASSWORD": "secret-sample",
+		}, "SMTP_USERNAME: must be non-blank"},
 		{"SMTP blank username", map[string]string{
 			"SMTP_HOST": "relay.example", "EMAIL_FROM": "sender@example.com", "SMTP_USERNAME": " ",
 		}, "SMTP_USERNAME"},
