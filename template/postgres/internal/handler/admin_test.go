@@ -547,16 +547,29 @@ func TestMailTestTransientRefusalKeepsAddressOutOfStoredTextPageAndLogs(t *testi
 	c := a.signedIn(t, address)
 	c.Page("/admin/users").Form("/admin/mail-test").Submit().
 		WantRedirect(http.StatusSeeOther, "/admin/users?notice=mail-queued")
-	outboxtest.Drain(t, a.queue)
+	// The queue page lists only dead jobs, so retry past every backoff until
+	// the attempts run out; otherwise the page check below could not fail.
+	for range 20 {
+		outboxtest.Drain(t, a.queue)
+		if len(outboxtest.Enqueued(t, a.queue, outbox.Filter{Kind: "mail-test", State: outbox.StateDead})) == 1 {
+			break
+		}
+		a.clock.Advance(24 * time.Hour)
+	}
 	found := outboxtest.Enqueued(t, a.queue, outbox.Filter{Kind: "mail-test"})
-	if len(found) != 1 || found[0].State == outbox.StateDone {
-		t.Fatalf("expected one job still pending after a 4xx reply: %+v", found)
+	if len(found) != 1 || found[0].State != outbox.StateDead {
+		t.Fatalf("expected one dead job after repeated 4xx replies: %+v", found)
 	}
 	const fixed = "Job failed; see the server log for its error class."
 	if found[0].LastError != fixed {
 		t.Fatalf("stored description = %q, want the fixed default", found[0].LastError)
 	}
-	if page := c.Get("/admin/jobs").Body; strings.Contains(page, address) {
+	res := c.Get("/admin/jobs")
+	res.WantStatus(http.StatusOK)
+	if !strings.Contains(res.Body, "mail-test") || !strings.Contains(res.Body, fixed) {
+		t.Fatal("the queue page does not list the dead job with its fixed text")
+	}
+	if strings.Contains(res.Body, address) {
 		t.Fatal("the queue page shows the recipient")
 	}
 	webtest.NoSecrets(t, a.logs.String(), `"error_class"`, address)
@@ -575,12 +588,8 @@ func newRefusingRelay(t *testing.T, address, reply string) mailer.Sender {
 		_ = ln.Close()
 		<-done
 	})
-	go func() {
-		defer close(done)
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
+	// One connection per delivery attempt, served in turn.
+	serve := func(conn net.Conn) {
 		defer conn.Close()
 		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 		_, _ = io.WriteString(conn, "220 relay.example SMTP\r\n")
@@ -599,6 +608,16 @@ func newRefusingRelay(t *testing.T, address, reply string) mailer.Sender {
 				_, _ = io.WriteString(conn, "451 unexpected command\r\n")
 				return
 			}
+		}
+	}
+	go func() {
+		defer close(done)
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			serve(conn)
 		}
 	}()
 	sender, err := mailer.NewSMTPSender(mailer.SMTPConfig{
