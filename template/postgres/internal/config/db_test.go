@@ -48,7 +48,9 @@ func TestInvalidDatabaseConfig(t *testing.T) {
 		want   string
 	}{
 		{"blank", map[string]string{"DATABASE_URL": "  "}, "DATABASE_URL"},
-		{"not a connection string", map[string]string{"DATABASE_URL": "postgres://app:sample-secret@example.com:notaport/app"}, "DATABASE_URL"},
+		{"not a connection string", map[string]string{
+			"DATABASE_URL": "postgres://user-sample:sample-secret@example.com:notaport/app",
+		}, "DATABASE_URL: is not a valid PostgreSQL connection string"},
 		{"a pool of one", map[string]string{"DATABASE_URL": sampleURL + "&pool_max_conns=1"}, "pool_max_conns"},
 		{"both", map[string]string{"DATABASE_URL": sampleURL, "DATABASE_URL_FILE": empty}, "DATABASE_URL_FILE: cannot be set together with DATABASE_URL"},
 		{"empty file", map[string]string{"DATABASE_URL_FILE": empty}, "DATABASE_URL_FILE"},
@@ -59,8 +61,15 @@ func TestInvalidDatabaseConfig(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error = %v, want one naming %q", err, tt.want)
 			}
-			if strings.Contains(err.Error(), "sample-secret") {
-				t.Fatalf("the error quotes the password: %v", err)
+			for _, part := range []struct{ name, value string }{
+				{"username", "user-sample"},
+				{"password", "sample-secret"},
+				{"host", "example.com"},
+				{"port", "notaport"},
+			} {
+				if strings.Contains(err.Error(), part.value) {
+					t.Errorf("the diagnostic quotes the connection %s", part.name)
+				}
 			}
 		})
 	}
