@@ -93,14 +93,14 @@ func TestEmptySettingsUseDefaults(t *testing.T) {
 func TestConfigReportsAllProblemsWithoutValues(t *testing.T) {
 	values := map[string]string{
 		"PORT": "port-sample", "COOKIE_SECURE": "cookie-sample", "BASE_URL": "https://user:origin-sample@example.com",
-		"SMTP_HOST": "relay.example", "EMAIL_FROM": "mailbox-sample",
+		"SMTP_HOST": "relay.example", "EMAIL_FROM": "mailbox-sample", "SETUP_TOKEN": "token-sample",
 	}
 	_, err := from(values)
 	if err == nil {
 		t.Fatal("expected configuration errors")
 	}
 	problems := strings.Split(err.Error(), "\n")
-	keys := []string{"PORT", "COOKIE_SECURE", "EMAIL_FROM", "BASE_URL"}
+	keys := []string{"PORT", "COOKIE_SECURE", "EMAIL_FROM", "BASE_URL", "SETUP_TOKEN"}
 	if len(problems) != len(keys) {
 		t.Fatalf("expected one problem per invalid setting, got %v", err)
 	}
