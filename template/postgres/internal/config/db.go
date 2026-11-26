@@ -12,15 +12,17 @@ import (
 // DATABASE_URL (or DATABASE_URL_FILE) and never relies on it.
 const developmentURL = "postgres://app:app@localhost:5432/app?sslmode=disable"
 
-// MinPoolConns is the smallest pool the application can run with: a boot holds
-// one connection for the migration lock while migrations use another, so a
-// pool of one would wait on itself for ever.
+// MinPoolConns is the smallest pool the application can run with. The queue's
+// migration (pgxstore.Migrate) takes its advisory lock on one pool connection
+// and applies its schema on another, so a pool of one would wait on itself for
+// ever. The application's own migration lock is held on a separate connection
+// outside the pool and does not count toward this floor.
 const MinPoolConns = 2
 
 // PoolSizeMessage is the error for a pool smaller than MinPoolConns.
 const PoolSizeMessage = "DATABASE_URL " + poolSizeProblem
 
-const poolSizeProblem = "pool_max_conns must be at least 2: one connection holds the migration lock while another runs the migrations"
+const poolSizeProblem = "pool_max_conns must be at least 2: the queue migration holds one connection for its lock while another applies its schema"
 
 // DB holds the connection string without exposing it in diagnostics.
 type DB struct {

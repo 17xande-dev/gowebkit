@@ -181,8 +181,9 @@ func connect(ctx context.Context, cfg config.DB) (*pgxpool.Pool, error) {
 		// The parser's message can quote the connection string.
 		return nil, errors.New("DATABASE_URL is not a valid PostgreSQL connection string")
 	}
-	// Refuse before connecting: with one connection the migration lock would
-	// hold the only one and the migration step would wait for it for ever.
+	// Refuse before connecting: the queue's migration needs two pool
+	// connections (its lock and its schema changes), and with one it would
+	// wait for the connection it already holds.
 	if pc.MaxConns < config.MinPoolConns {
 		return nil, errors.New(config.PoolSizeMessage)
 	}

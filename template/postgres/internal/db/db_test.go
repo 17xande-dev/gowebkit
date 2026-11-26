@@ -48,8 +48,8 @@ func holdMigrationLock(t *testing.T, cfg config.DB) (release func()) {
 	return release
 }
 
-// A pool of one connection would hold it for the migration lock and wait for
-// another to migrate with, for ever. It is refused up front, before any
+// A pool of one connection would hold it for the queue migration's lock and
+// wait for another to apply its schema with, for ever. It is refused up front, before any
 // connection is tried (the address below is unreachable on purpose).
 func TestPoolOfOneConnectionIsRefusedBeforeConnecting(t *testing.T) {
 	cfg := dbtest.ConfigWithURL("postgres://app:app@127.0.0.1:1/app?sslmode=disable&pool_max_conns=1")

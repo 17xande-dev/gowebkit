@@ -21,6 +21,14 @@ To port these changes into an app generated from v0.2.x:
    SQLite also uses `sqlitekit` v0.3.0. Port `internal/jobs` and the migration
    wiring from `internal/db` in the matching template; keep your application
    migrations and use the separate `outbox_goose_version` history.
+   PostgreSQL apps must port `migrationLock` in `internal/db` with the rest:
+   it now holds the application's lock on a connection of its own, outside the
+   pool, because the queue's migration takes two pool connections (its lock
+   and its schema changes). An app that keeps the old lock on a pool
+   connection needs `pool_max_conns` of at least 3 to boot; with
+   `pool_max_conns=2` its boot waits for a pool connection until the process
+   is stopped. With the new lock the minimum stays 2, which `internal/config`
+   refuses to go below.
 2. Port the queue construction, worker start and joined shutdown from
    `main.go`, and the purge call in `cleanup.go`. Port `JOB_KEEP_DONE` with
    the env loader, `.env.example` and README entry, then run `go mod tidy`.
