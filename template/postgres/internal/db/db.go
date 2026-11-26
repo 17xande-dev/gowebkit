@@ -162,7 +162,7 @@ func versionTableExists(ctx context.Context, sqlDB *sql.DB) (bool, error) {
 
 // connect opens a pool and checks that the server answers.
 func connect(ctx context.Context, cfg config.DB) (*pgxpool.Pool, error) {
-	pc, err := pgxpool.ParseConfig(cfg.URL)
+	pc, err := pgxpool.ParseConfig(cfg.ConnectionString())
 	if err != nil {
 		// The parser's message can quote the connection string.
 		return nil, errors.New("DATABASE_URL is not a valid PostgreSQL connection string")

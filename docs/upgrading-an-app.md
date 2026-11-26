@@ -27,6 +27,11 @@ that variant). The command works outside any module.
    and `-check-config` must refuse the same inputs. A test builds the whole
    server from every accepted configuration. Retired environment variables are
    ignored, never fatal.
+   For v0.2.0, use `github.com/17xande-dev/env` so unset and empty settings
+   both use their defaults and all problems are reported together without
+   values. Keep app-specific checks in the loader, including the requirement
+   that `COOKIE_SECURE` agree with the `BASE_URL` scheme. Compare the keys
+   read with both `.env.example` and the README table using `env/envtest`.
 3. **Request-forgery policy built before the handlers; a size cap in front of
    every parser.** No code may read a body ahead of the wrapper. Renew the
    token at sign-in, sign-out and password change, and test that the old token

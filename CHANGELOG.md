@@ -3,6 +3,31 @@
 Each entry says what changed in the templates and how to port it into an
 existing app. Both templates are released together under one version.
 
+## Unreleased
+
+Planned for v0.2.0:
+
+- **Defaults and diagnostics.** Unset and empty settings both select the
+  default; nonempty booleans still accept exactly `true` or `false`. Startup
+  and `-check-config` now report all configuration problems together without
+  echoing setting values or secret file paths.
+- **HTTPS requires Secure cookies.** Set `COOKIE_SECURE=true` for an HTTPS
+  `BASE_URL`, even if TLS terminates at a proxy. An omitted or blank setting
+  defaults to `false` and is refused for HTTPS. HTTP still requires `false`.
+- **New dependency: `github.com/17xande-dev/env` v0.1.0.** Setup tokens, SMTP
+  passwords and PostgreSQL connection strings are redacted when formatted.
+  Secret files now strip all trailing CR and LF bytes, not just a final line
+  ending, and are supported on Unix only.
+
+To port this into a v0.1.x app, add the dependency with `go get
+github.com/17xande-dev/env@v0.1.0`. Adapt `internal/config` and its tests
+from the matching template, retaining any app-specific settings and checks.
+Read all keys, record validation failures with `Reader.Fail`, and check
+`Reader.Err` once before opening the database. Keep credentials as
+`env.Secret` until validation or use requires `Reveal`. Update both
+configuration references and run `go mod tidy`, `make check-config` with
+the intended deployment settings, and `make gate`.
+
 ## v0.1.1 (2026-11-25)
 
 A patch release: no change to the generated apps' behaviour, the documentation

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -36,18 +37,80 @@ func TestDefaults(t *testing.T) {
 func TestStrictBooleans(t *testing.T) {
 	for _, value := range []string{"true", "false", "1", "0", "", "TRUE", "False", "yes", " true", "false "} {
 		t.Run("value="+value, func(t *testing.T) {
-			cfg, err := from(map[string]string{"COOKIE_SECURE": value, "BASE_URL": "https://app.example"})
+			values := map[string]string{"COOKIE_SECURE": value}
+			if value == "true" {
+				values["BASE_URL"] = "https://app.example"
+			}
+			cfg, err := from(values)
 			switch value {
-			case "true", "false":
+			case "true", "false", "":
 				if err != nil || cfg.CookieSecure != (value == "true") {
 					t.Fatalf("CookieSecure = %v, err = %v", cfg.CookieSecure, err)
 				}
 			default:
-				if err == nil || !strings.Contains(err.Error(), "COOKIE_SECURE") {
+				if err == nil || !strings.HasPrefix(err.Error(), "COOKIE_SECURE: ") {
 					t.Fatalf("expected boolean refusal, got %v", err)
 				}
 			}
 		})
+	}
+}
+
+func TestCookieSecurityMatchesOrigin(t *testing.T) {
+	for _, tt := range []struct{ name, base, secure string }{
+		{"HTTPS with insecure cookies", "https://app.example", "false"},
+		{"HTTPS with default cookies", "https://app.example", ""},
+		{"HTTP with secure cookies", "http://app.example", "true"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := from(map[string]string{"BASE_URL": tt.base, "COOKIE_SECURE": tt.secure})
+			if err == nil || !strings.Contains(err.Error(), "BASE_URL") || !strings.Contains(err.Error(), "COOKIE_SECURE") {
+				t.Fatalf("expected both setting names, got %v", err)
+			}
+			if strings.Contains(err.Error(), tt.base) || (tt.secure != "" && strings.Contains(err.Error(), tt.secure)) {
+				t.Fatalf("origin mismatch quotes a setting value: %v", err)
+			}
+		})
+	}
+}
+
+func TestEmptySettingsUseDefaults(t *testing.T) {
+	cfg, err := from(map[string]string{
+		"PORT": "", "BASE_URL": "", "COOKIE_SECURE": "", "SITE_NAME": "", "SESSION_IDLE": "",
+		"SESSION_ABSOLUTE": "", "CLIENT_IP_SOURCE": "", "PASSWORD_CONCURRENCY": "", "LOG_LEVEL": "",
+		"LOG_FORMAT": "", "SHUTDOWN_TIMEOUT": "", "SMTP_PORT": "", "SMTP_TLS": "",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Port != 8080 || cfg.BaseURL != "http://localhost:8080" || cfg.CookieSecure || cfg.SiteName != "My App" ||
+		cfg.SessionLifetime != session.Default || cfg.PasswordConcurrency != 2 || cfg.LogLevel != 0 || cfg.LogFormat != "json" ||
+		cfg.ShutdownTimeout != 15*time.Second || cfg.SMTP.Port != 587 || cfg.SMTP.TLS != mailer.TLSStartTLS {
+		t.Fatalf("empty settings did not use defaults: %+v", cfg)
+	}
+}
+
+func TestConfigReportsAllProblemsWithoutValues(t *testing.T) {
+	values := map[string]string{
+		"PORT": "port-sample", "COOKIE_SECURE": "cookie-sample", "BASE_URL": "https://user:origin-sample@example.com",
+		"SMTP_HOST": "relay.example", "EMAIL_FROM": "mailbox-sample",
+	}
+	_, err := from(values)
+	if err == nil {
+		t.Fatal("expected configuration errors")
+	}
+	problems := strings.Split(err.Error(), "\n")
+	keys := []string{"PORT", "COOKIE_SECURE", "EMAIL_FROM", "BASE_URL"}
+	if len(problems) != len(keys) {
+		t.Fatalf("expected one problem per invalid setting, got %v", err)
+	}
+	for i, key := range keys {
+		if !strings.HasPrefix(problems[i], key+": ") {
+			t.Errorf("problem %d should name %s, got %q", i+1, key, problems[i])
+		}
+		if strings.Contains(err.Error(), values[key]) || strings.Contains(err.Error(), "origin-sample") {
+			t.Errorf("diagnostic discloses a value for %s", key)
+		}
 	}
 }
 
@@ -129,7 +192,7 @@ func TestSecretFiles(t *testing.T) {
 	passwordFile := filepath.Join(dir, "password")
 	token := strings.Repeat("x", 32)
 	password := "  secret sample  "
-	for path, value := range map[string]string{tokenFile: token + "\n", passwordFile: password + "\r\n"} {
+	for path, value := range map[string]string{tokenFile: token + "\n", passwordFile: password + "\r\n\n"} {
 		if err := os.WriteFile(path, []byte(value), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -140,12 +203,13 @@ func TestSecretFiles(t *testing.T) {
 		"SMTP_HOST": "relay.example", "EMAIL_FROM": "sender@example.com",
 	}
 	cfg, err := from(values)
-	if err != nil || cfg.SetupToken != token || cfg.SMTP.Password != password {
+	if err != nil || cfg.SetupToken.Reveal() != token || cfg.SMTP.Password.Reveal() != password {
 		t.Fatalf("secret file resolution failed: %v", err)
 	}
 	values["SMTP_PASSWORD"] = password
 	_, err = from(values)
-	if err == nil || !strings.Contains(err.Error(), "set only one") || strings.Contains(err.Error(), password) {
+	if err == nil || !strings.Contains(err.Error(), "SMTP_PASSWORD_FILE: cannot be set together with SMTP_PASSWORD") ||
+		strings.Contains(err.Error(), password) || strings.Contains(err.Error(), passwordFile) {
 		t.Fatalf("expected redacted conflict, got %v", err)
 	}
 	for _, path := range []string{filepath.Join(dir, "not-found"), dir} {
@@ -161,6 +225,25 @@ func TestSecretFiles(t *testing.T) {
 		_, err := from(map[string]string{"SETUP_TOKEN_FILE": tokenFile})
 		if err == nil || !strings.Contains(err.Error(), "SETUP_TOKEN_FILE") {
 			t.Fatalf("expected refusal for file of length %d, got %v", len(value), err)
+		}
+	}
+}
+
+func TestConfigDoesNotPrintSecrets(t *testing.T) {
+	const token = "test-setup-credential-not-for-print"
+	const password = "test-relay-credential-not-for-print"
+	cfg, err := from(map[string]string{
+		"SETUP_TOKEN": token, "SMTP_HOST": "relay.example", "EMAIL_FROM": "sender@example.com",
+		"SMTP_USERNAME": "sender", "SMTP_PASSWORD": password,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []string{"%v", "%+v", "%#v"} {
+		rendered := fmt.Sprintf(format, cfg)
+		if strings.Contains(rendered, token) || strings.Contains(rendered, password) ||
+			strings.Count(rendered, "[redacted]") != 2 {
+			t.Errorf("format %s did not redact both configured credentials", format)
 		}
 	}
 }

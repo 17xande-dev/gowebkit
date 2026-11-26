@@ -21,14 +21,16 @@ func TestDatabaseDefaultsAndOverrides(t *testing.T) {
 		want   string
 	}{
 		{"defaults to the development database", nil, developmentURL},
+		{"empty", map[string]string{"DATABASE_URL": ""}, developmentURL},
 		{"url", map[string]string{"DATABASE_URL": sampleURL}, sampleURL},
 		{"url file", map[string]string{"DATABASE_URL_FILE": file}, sampleURL},
+		{"url file with empty direct setting", map[string]string{"DATABASE_URL": "", "DATABASE_URL_FILE": file}, sampleURL},
 		{"key value form", map[string]string{"DATABASE_URL": "host=example.com user=app dbname=app"}, "host=example.com user=app dbname=app"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg, err := from(tt.values)
-			if err != nil || cfg.DB.URL != tt.want {
-				t.Fatalf("database url = %q, error=%v; want %q", cfg.DB.URL, err, tt.want)
+			if err != nil || cfg.DB.ConnectionString() != tt.want {
+				t.Fatalf("unexpected database connection string, error=%v", err)
 			}
 		})
 	}
@@ -45,11 +47,10 @@ func TestInvalidDatabaseConfig(t *testing.T) {
 		values map[string]string
 		want   string
 	}{
-		{"empty", map[string]string{"DATABASE_URL": ""}, "DATABASE_URL"},
 		{"blank", map[string]string{"DATABASE_URL": "  "}, "DATABASE_URL"},
 		{"not a connection string", map[string]string{"DATABASE_URL": "postgres://app:sample-secret@example.com:notaport/app"}, "DATABASE_URL"},
 		{"a pool of one", map[string]string{"DATABASE_URL": sampleURL + "&pool_max_conns=1"}, "pool_max_conns"},
-		{"both", map[string]string{"DATABASE_URL": sampleURL, "DATABASE_URL_FILE": empty}, "only one"},
+		{"both", map[string]string{"DATABASE_URL": sampleURL, "DATABASE_URL_FILE": empty}, "DATABASE_URL_FILE: cannot be set together with DATABASE_URL"},
 		{"empty file", map[string]string{"DATABASE_URL_FILE": empty}, "DATABASE_URL_FILE"},
 		{"missing file", map[string]string{"DATABASE_URL_FILE": filepath.Join(dir, "none")}, "DATABASE_URL_FILE"},
 	} {
@@ -73,10 +74,10 @@ func TestDatabaseConfigNeverPrintsThePassword(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, rendered := range []string{
-		fmt.Sprint(cfg.DB), fmt.Sprintf("%v", cfg), fmt.Sprintf("%+v", cfg), fmt.Sprintf("%#v", cfg.DB),
+		fmt.Sprint(cfg.DB), fmt.Sprintf("%v", cfg), fmt.Sprintf("%+v", cfg), fmt.Sprintf("%#v", cfg), fmt.Sprintf("%#v", cfg.DB),
 	} {
-		if strings.Contains(rendered, "sample-secret") {
-			t.Fatalf("rendered configuration contains the password: %s", rendered)
+		if strings.Contains(rendered, "sample-secret") || !strings.Contains(rendered, "[redacted]") {
+			t.Fatal("rendered configuration did not redact the database credential")
 		}
 	}
 }

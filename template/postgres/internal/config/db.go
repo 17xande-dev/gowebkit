@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 
+	"github.com/17xande-dev/env"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -17,37 +18,36 @@ const developmentURL = "postgres://app:app@localhost:5432/app?sslmode=disable"
 const MinPoolConns = 2
 
 // PoolSizeMessage is the error for a pool smaller than MinPoolConns.
-const PoolSizeMessage = "DATABASE_URL pool_max_conns must be at least 2: one connection holds the migration lock while another runs the migrations"
+const PoolSizeMessage = "DATABASE_URL " + poolSizeProblem
 
-// DB holds the connection string. The string carries a password, so the type
-// refuses to print itself: a logged or %v-formatted Config cannot leak it.
+const poolSizeProblem = "pool_max_conns must be at least 2: one connection holds the migration lock while another runs the migrations"
+
+// DB holds the connection string without exposing it in diagnostics.
 type DB struct {
-	URL string
+	URL env.Secret
 }
 
-// String and GoString keep the connection string out of logs and test output.
-func (DB) String() string   { return "config.DB{URL: <redacted>}" }
-func (DB) GoString() string { return "config.DB{URL: <redacted>}" }
+// ConnectionString returns the credential for PostgreSQL parsing or connection.
+// Do not log the returned string.
+func (d DB) ConnectionString() string {
+	if !d.URL.IsSet() {
+		return developmentURL
+	}
+	return d.URL.Reveal()
+}
 
-func loadDB(e *env) DB {
-	url := e.secret("DATABASE_URL", "DATABASE_URL_FILE")
-	file, _ := e.lookup("DATABASE_URL_FILE")
-	fileSet := file != ""
-	if v, set := e.lookup("DATABASE_URL"); set && v == "" {
-		e.reject("DATABASE_URL must not be empty")
-	}
-	if url == "" && !fileSet {
-		url = developmentURL
-	}
+func loadDB(r *env.Reader) DB {
+	cfg := DB{URL: r.Secret("DATABASE_URL")}
+	url := cfg.ConnectionString()
 	// Parsing is offline: it validates the string before any connection or
 	// migration. The parser's own message can quote the input, so it is not
 	// passed on.
 	if strings.TrimSpace(url) == "" || strings.ContainsRune(url, 0) {
-		e.reject("DATABASE_URL is not a valid PostgreSQL connection string")
+		r.Fail("DATABASE_URL", "is not a valid PostgreSQL connection string")
 	} else if pc, err := pgxpool.ParseConfig(url); err != nil {
-		e.reject("DATABASE_URL is not a valid PostgreSQL connection string")
+		r.Fail("DATABASE_URL", "is not a valid PostgreSQL connection string")
 	} else if pc.MaxConns < MinPoolConns {
-		e.reject(PoolSizeMessage)
+		r.Fail("DATABASE_URL", poolSizeProblem)
 	}
-	return DB{URL: url}
+	return cfg
 }

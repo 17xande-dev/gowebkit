@@ -19,7 +19,7 @@ import (
 // own, and gives it back when the test ends or release is called.
 func holdMigrationLock(t *testing.T, cfg config.DB) (release func()) {
 	t.Helper()
-	pool, err := pgxpool.New(t.Context(), cfg.URL)
+	pool, err := pgxpool.New(t.Context(), cfg.ConnectionString())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func holdMigrationLock(t *testing.T, cfg config.DB) (release func()) {
 // another to migrate with, for ever. It is refused up front, before any
 // connection is tried (the address below is unreachable on purpose).
 func TestPoolOfOneConnectionIsRefusedBeforeConnecting(t *testing.T) {
-	cfg := config.DB{URL: "postgres://app:app@127.0.0.1:1/app?sslmode=disable&pool_max_conns=1"}
+	cfg := dbtest.ConfigWithURL("postgres://app:app@127.0.0.1:1/app?sslmode=disable&pool_max_conns=1")
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	_, err := db.Open(ctx, cfg)
@@ -63,7 +63,7 @@ func TestPoolOfOneConnectionIsRefusedBeforeConnecting(t *testing.T) {
 
 func tableNames(t *testing.T, cfg config.DB) []string {
 	t.Helper()
-	conn, err := pgx.Connect(t.Context(), cfg.URL)
+	conn, err := pgx.Connect(t.Context(), cfg.ConnectionString())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestConcurrentOpensQueueOnTheMigrationLock(t *testing.T) {
 // a statement containing fragment.
 func waitForSessions(t *testing.T, cfg config.DB, fragment string, want int, done <-chan error) {
 	t.Helper()
-	pool, err := pgxpool.New(t.Context(), cfg.URL)
+	pool, err := pgxpool.New(t.Context(), cfg.ConnectionString())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestNewerDatabaseIsRefused(t *testing.T) {
 	if err := db.Migrate(t.Context(), cfg); err != nil {
 		t.Fatal(err)
 	}
-	conn, err := pgx.Connect(t.Context(), cfg.URL)
+	conn, err := pgx.Connect(t.Context(), cfg.ConnectionString())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestNewerDatabaseIsRefused(t *testing.T) {
 
 func TestTablesWithoutHistoryAreRefused(t *testing.T) {
 	cfg := dbtest.Config(t)
-	conn, err := pgx.Connect(t.Context(), cfg.URL)
+	conn, err := pgx.Connect(t.Context(), cfg.ConnectionString())
 	if err != nil {
 		t.Fatal(err)
 	}

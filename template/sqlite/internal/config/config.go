@@ -2,9 +2,6 @@
 package config
 
 import (
-	"errors"
-	"fmt"
-	"io"
 	"log/slog"
 	"net/mail"
 	"net/netip"
@@ -15,6 +12,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/17xande-dev/env"
 	"github.com/17xande-dev/mailer"
 	"github.com/17xande-dev/ratelimit/clientip"
 	"github.com/17xande-dev/websec/cookie"
@@ -30,46 +28,56 @@ type Config struct {
 	CookieSecure        bool
 	SessionCookie       *cookie.Cookie
 	SiteName            string
-	SetupToken          string
+	SetupToken          env.Secret
 	SessionLifetime     session.Lifetime
 	ClientIPSource      clientip.Source
 	PasswordConcurrency int
 	LogLevel            slog.Level
 	LogFormat           string
 	ShutdownTimeout     time.Duration
-	SMTP                mailer.SMTPConfig
+	SMTP                SMTP
+}
+
+// SMTP holds the relay settings without exposing the password in diagnostics.
+type SMTP struct {
+	Host     string
+	Port     int
+	Username string
+	Password env.Secret
+	From     string
+	TLS      mailer.TLSPolicy
 }
 
 // Load reads the environment and validates it without connecting to a service.
 func Load() (Config, error) { return load(os.LookupEnv) }
 
-func load(lookup func(string) (string, bool)) (Config, error) {
-	e := env{lookup: lookup}
+func load(lookup env.Lookup) (Config, error) {
+	r := env.New(lookup)
 	cfg := Config{
-		Port:                e.integer("PORT", 8080, 1, 65535),
-		CookieSecure:        e.boolean("COOKIE_SECURE", false),
-		SiteName:            e.text("SITE_NAME", "My App"),
-		SetupToken:          e.secret("SETUP_TOKEN", "SETUP_TOKEN_FILE"),
-		PasswordConcurrency: e.integer("PASSWORD_CONCURRENCY", 2, 1, 64),
-		LogFormat:           e.text("LOG_FORMAT", "json"),
-		ShutdownTimeout:     e.duration("SHUTDOWN_TIMEOUT", 15*time.Second),
-		DB:                  loadDB(&e),
+		Port:                r.Int("PORT", 8080, 1, 65535),
+		CookieSecure:        r.Bool("COOKIE_SECURE", false),
+		SiteName:            r.String("SITE_NAME", "My App"),
+		SetupToken:          r.Secret("SETUP_TOKEN"),
+		PasswordConcurrency: r.Int("PASSWORD_CONCURRENCY", 2, 1, 64),
+		LogFormat:           r.OneOf("LOG_FORMAT", "json", "json", "text"),
+		ShutdownTimeout:     r.Duration("SHUTDOWN_TIMEOUT", 15*time.Second, time.Nanosecond, 0),
+		DB:                  loadDB(r),
 	}
 	defaultOrigin := "http://localhost"
 	if cfg.Port != 80 {
 		defaultOrigin += ":" + strconv.Itoa(cfg.Port)
 	}
-	cfg.BaseURL = e.text("BASE_URL", defaultOrigin)
+	cfg.BaseURL = r.String("BASE_URL", defaultOrigin)
 	cfg.SessionLifetime = session.Default
-	cfg.SessionLifetime.Idle = e.duration("SESSION_IDLE", cfg.SessionLifetime.Idle)
-	cfg.SessionLifetime.Absolute = e.duration("SESSION_ABSOLUTE", cfg.SessionLifetime.Absolute)
+	cfg.SessionLifetime.Idle = r.Duration("SESSION_IDLE", cfg.SessionLifetime.Idle, time.Nanosecond, 0)
+	cfg.SessionLifetime.Absolute = r.Duration("SESSION_ABSOLUTE", cfg.SessionLifetime.Absolute, time.Nanosecond, 0)
 
 	var err error
-	cfg.ClientIPSource, err = clientip.ParseSource(e.text("CLIENT_IP_SOURCE", "remote"))
+	cfg.ClientIPSource, err = clientip.ParseSource(r.String("CLIENT_IP_SOURCE", "remote"))
 	if err != nil {
-		e.reject("CLIENT_IP_SOURCE must be remote, forwarded, or cloudflare")
+		r.Fail("CLIENT_IP_SOURCE", "must be remote, forwarded, or cloudflare")
 	}
-	switch e.text("LOG_LEVEL", "info") {
+	switch r.OneOf("LOG_LEVEL", "info", "debug", "info", "warn", "error") {
 	case "debug":
 		cfg.LogLevel = slog.LevelDebug
 	case "info":
@@ -78,168 +86,67 @@ func load(lookup func(string) (string, bool)) (Config, error) {
 		cfg.LogLevel = slog.LevelWarn
 	case "error":
 		cfg.LogLevel = slog.LevelError
-	default:
-		e.reject("LOG_LEVEL must be debug, info, warn, or error")
 	}
-	cfg.SMTP = loadSMTP(&e)
-	if err := csrf.ValidateOrigin(cfg.BaseURL, !cfg.CookieSecure); err != nil {
-		e.reject("BASE_URL must be a canonical origin (HTTP requires COOKIE_SECURE=false)")
+	cfg.SMTP = loadSMTP(r)
+	if err := csrf.ValidateOrigin(cfg.BaseURL, true); err != nil {
+		r.Fail("BASE_URL", "must be a canonical origin")
+	} else if cfg.CookieSecure != strings.HasPrefix(cfg.BaseURL, "https://") {
+		r.Fail("BASE_URL", "HTTPS requires secure cookies and HTTP requires insecure cookies; check COOKIE_SECURE")
 	}
 	cfg.SessionCookie, err = cookie.New(cookie.Config{Name: "session", Insecure: !cfg.CookieSecure})
 	if err != nil {
-		e.reject("invalid session cookie configuration")
+		r.Fail("COOKIE_SECURE", "invalid session cookie configuration")
 	}
 	if err := cfg.SessionLifetime.Validate(); err != nil {
-		e.reject("SESSION_IDLE and SESSION_ABSOLUTE: " + err.Error())
+		r.Fail("SESSION_IDLE", "must not exceed SESSION_ABSOLUTE")
 	}
 	if strings.TrimSpace(cfg.SiteName) == "" {
-		e.reject("SITE_NAME must not be blank")
+		r.Fail("SITE_NAME", "must not be blank")
 	}
-	if cfg.SetupToken != "" && (!utf8.ValidString(cfg.SetupToken) || utf8.RuneCountInString(cfg.SetupToken) < 32 ||
-		strings.ContainsFunc(cfg.SetupToken, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) })) {
-		e.reject("SETUP_TOKEN must be at least 32 characters without whitespace or control characters")
+	if token := cfg.SetupToken.Reveal(); cfg.SetupToken.IsSet() &&
+		(!utf8.ValidString(token) || utf8.RuneCountInString(token) < 32 ||
+			strings.ContainsFunc(token, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) })) {
+		r.Fail("SETUP_TOKEN", "must be at least 32 characters without whitespace or control characters")
 	}
-	if cfg.LogFormat != "json" && cfg.LogFormat != "text" {
-		e.reject("LOG_FORMAT must be json or text")
-	}
-	if cfg.ShutdownTimeout <= 0 {
-		e.reject("SHUTDOWN_TIMEOUT must be positive")
-	}
-	if e.err != nil {
-		return Config{}, e.err
+	if err := r.Err(); err != nil {
+		return Config{}, err
 	}
 	return cfg, nil
 }
 
-func loadSMTP(e *env) mailer.SMTPConfig {
-	cfg := mailer.SMTPConfig{
-		Host:     e.text("SMTP_HOST", ""),
-		Port:     e.integer("SMTP_PORT", 587, 1, 65535),
-		Username: e.text("SMTP_USERNAME", ""),
-		Password: e.secret("SMTP_PASSWORD", "SMTP_PASSWORD_FILE"),
-		From:     e.text("EMAIL_FROM", ""),
+func loadSMTP(r *env.Reader) SMTP {
+	cfg := SMTP{
+		Host:     r.String("SMTP_HOST", ""),
+		Port:     r.Int("SMTP_PORT", 587, 1, 65535),
+		Username: r.String("SMTP_USERNAME", ""),
+		Password: r.Secret("SMTP_PASSWORD"),
+		From:     r.String("EMAIL_FROM", ""),
 	}
 	var err error
-	cfg.TLS, err = mailer.ParseTLSPolicy(e.text("SMTP_TLS", "starttls"))
+	cfg.TLS, err = mailer.ParseTLSPolicy(r.String("SMTP_TLS", "starttls"))
 	if err != nil {
-		e.reject("SMTP_TLS must be starttls, tls, or none")
+		r.Fail("SMTP_TLS", "must be starttls, tls, or none")
 	}
 	if cfg.Host == "" {
-		if cfg.Username != "" || cfg.Password != "" || cfg.From != "" {
-			e.reject("SMTP_HOST is required when SMTP credentials or EMAIL_FROM are set")
+		if cfg.Username != "" || cfg.Password.IsSet() || cfg.From != "" {
+			r.Fail("SMTP_HOST", "is required when SMTP credentials or EMAIL_FROM are set")
 		}
 		return cfg
 	}
 	if _, err := netip.ParseAddr(cfg.Host); err != nil &&
 		(strings.ContainsAny(cfg.Host, ":/@\\?#[]") || strings.IndexFunc(cfg.Host, unicode.IsSpace) >= 0) {
-		e.reject("SMTP_HOST must be a hostname or IP address without a port")
+		r.Fail("SMTP_HOST", "must be a hostname or IP address without a port")
 	}
 	if _, err := mail.ParseAddress(cfg.From); err != nil {
-		e.reject("EMAIL_FROM must be a valid mailbox when SMTP is enabled")
+		r.Fail("EMAIL_FROM", "must be a valid mailbox when SMTP is enabled")
 	}
-	if (cfg.Username != "") != (cfg.Password != "") || (cfg.Username != "" && strings.TrimSpace(cfg.Username) == "") {
-		e.reject("SMTP_USERNAME and SMTP_PASSWORD must be supplied together")
+	if (cfg.Username != "") != cfg.Password.IsSet() || (cfg.Username != "" && strings.TrimSpace(cfg.Username) == "") {
+		r.Fail("SMTP_USERNAME", "must be non-blank and supplied together with SMTP_PASSWORD when using credentials")
 	}
-	if cfg.TLS == mailer.TLSNone && (cfg.Username != "" || cfg.Password != "") {
-		e.reject("SMTP credentials require TLS")
+	if cfg.TLS == mailer.TLSNone && (cfg.Username != "" || cfg.Password.IsSet()) {
+		r.Fail("SMTP_TLS", "SMTP credentials require TLS")
 	}
-	// The constructor only validates; it doesn't dial the relay.
-	if _, err := mailer.NewSMTPSender(cfg); err != nil {
-		e.reject("invalid SMTP configuration")
-	}
+	// The relay constructor's host, sender, port and TLS checks are covered
+	// above; only the transport needs the unredacted password.
 	return cfg
-}
-
-type env struct {
-	lookup func(string) (string, bool)
-	err    error
-}
-
-func (e *env) reject(message string) {
-	if e.err == nil {
-		e.err = errors.New(message)
-	}
-}
-
-func (e *env) text(key, fallback string) string {
-	if v, ok := e.lookup(key); ok {
-		return v
-	}
-	return fallback
-}
-
-func (e *env) boolean(key string, fallback bool) bool {
-	v, ok := e.lookup(key)
-	if !ok {
-		return fallback
-	}
-	switch v {
-	case "false":
-		return false
-	case "true":
-		return true
-	default:
-		e.reject(key + " must be true or false")
-		return fallback
-	}
-}
-
-func (e *env) integer(key string, fallback, min, max int) int {
-	v, err := strconv.Atoi(e.text(key, strconv.Itoa(fallback)))
-	if err != nil || v < min || (max != 0 && v > max) {
-		e.reject(key + " is not an integer in range")
-		return fallback
-	}
-	return v
-}
-
-func (e *env) duration(key string, fallback time.Duration) time.Duration {
-	v, err := time.ParseDuration(e.text(key, fallback.String()))
-	if err != nil {
-		e.reject(key + " must be a duration")
-		return fallback
-	}
-	return v
-}
-
-func (e *env) secret(key, fileKey string) string {
-	value, path := e.text(key, ""), e.text(fileKey, "")
-	if path == "" {
-		return value
-	}
-	if value != "" {
-		e.reject(fmt.Sprintf("set only one of %s and %s", key, fileKey))
-		return ""
-	}
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		e.reject(fileKey + " must name a readable regular file")
-		return ""
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		// Neither the path nor the value belongs in startup diagnostics.
-		e.reject(fileKey + " could not be opened")
-		return ""
-	}
-	defer f.Close()
-	const maxSecret = 64 << 10
-	info, err = f.Stat()
-	if err != nil || !info.Mode().IsRegular() {
-		e.reject(fileKey + " must name a regular file")
-		return ""
-	}
-	data, err := io.ReadAll(io.LimitReader(f, maxSecret+1))
-	if err != nil || len(data) > maxSecret {
-		e.reject(fileKey + " could not be read or exceeds 64 KiB")
-		return ""
-	}
-	value = string(data)
-	if body, ok := strings.CutSuffix(value, "\n"); ok {
-		value = strings.TrimSuffix(body, "\r")
-	}
-	if value == "" {
-		e.reject(fileKey + " is empty")
-	}
-	return value
 }

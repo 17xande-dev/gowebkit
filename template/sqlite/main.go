@@ -21,6 +21,7 @@ import (
 	"github.com/17xande-dev/gowebkit/template/sqlite/internal/handler"
 	"github.com/17xande-dev/gowebkit/template/sqlite/internal/mail"
 	"github.com/17xande-dev/gowebkit/template/sqlite/internal/store"
+	"github.com/17xande-dev/mailer"
 	"github.com/17xande-dev/password"
 )
 
@@ -129,7 +130,10 @@ func runServer(ctx context.Context, cfg config.Config, log *slog.Logger, open fu
 	}
 	defer func() { err = errors.Join(err, d.Close()) }()
 	accounts := store.New(d)
-	sender, delivering, err := mail.New(cfg.SMTP, log)
+	sender, delivering, err := mail.New(mailer.SMTPConfig{
+		Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username,
+		Password: cfg.SMTP.Password.Reveal(), From: cfg.SMTP.From, TLS: cfg.SMTP.TLS,
+	}, log)
 	if err != nil {
 		return fmt.Errorf("initialize mail: %w", err)
 	}
@@ -149,7 +153,7 @@ func runServer(ctx context.Context, cfg config.Config, log *slog.Logger, open fu
 		return fmt.Errorf("listen: %w", err)
 	}
 	setPasswordConcurrency(cfg.PasswordConcurrency)
-	if err := ensureSetupToken(ctx, accounts, log, cfg.SetupToken); err != nil {
+	if err := ensureSetupToken(ctx, accounts, log, cfg.SetupToken.Reveal()); err != nil {
 		return errors.Join(fmt.Errorf("initialize first-account setup: %w", err), ln.Close())
 	}
 	log.Info("server listening", "address", ln.Addr().String(), "version", buildVersion())

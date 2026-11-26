@@ -5,6 +5,11 @@
 `make check-config` validates the same environment that server startup uses
 without opening the database. In the container, run `/myapp -check-config`: the image's default command starts
 the server, so name the binary and its flag together.
+Unset and empty settings use their defaults. The command reports all
+configuration problems together without printing input values or secret file
+paths. For an HTTPS `BASE_URL`, set `COOKIE_SECURE=true` explicitly; for an
+HTTP `BASE_URL`, use `false` or the default.
+
 To inspect database migrations without applying them, run
 `/myapp -migrate-status`. Run `/myapp -migrate` to apply pending migrations
 without starting the HTTP server.

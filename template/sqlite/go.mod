@@ -3,6 +3,7 @@ module github.com/17xande-dev/gowebkit/template/sqlite
 go 1.27
 
 require (
+	github.com/17xande-dev/env v0.1.0
 	github.com/17xande-dev/mailer v0.3.0
 	github.com/17xande-dev/password v0.1.0
 	github.com/17xande-dev/ratelimit v0.2.0

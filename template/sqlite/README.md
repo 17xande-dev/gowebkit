@@ -46,12 +46,14 @@ See [`.env.example`](.env.example) for copyable examples. The app reads
 exported environment variables; it does not load dotenv files itself. To use
 a trusted local copy, run `set -a; . ./.env; set +a` in your shell before
 starting the native app. Compose supplies its own development settings.
+An unset or empty variable uses its default. `make check-config` reports
+configuration problems together and does not echo setting values.
 
 | Variable | Default | Format and purpose |
 | --- | --- | --- |
 | `PORT` | `8080` | Integer 1–65535; HTTP listen port. |
 | `BASE_URL` | Local HTTP origin using `PORT` (no `:80`) | Browser-facing canonical origin, e.g. `https://app.example`, with no path, trailing slash, query, fragment, userinfo or explicit default port. Use lowercase scheme and host. |
-| `COOKIE_SECURE` | `false` | Only lowercase `false` (local HTTP allowed) or `true` (secure cookies, HTTPS origin and HSTS). Empty is invalid. |
+| `COOKIE_SECURE` | `false` | Exactly `false` for an HTTP origin, or `true` for an HTTPS origin (enables Secure cookies and HSTS). |
 | `SITE_NAME` | `My App` | Non-blank page display name. |
 | `SETUP_TOKEN` | Unset | Optional first-admin token, at least 32 characters without whitespace or control characters. |
 | `SETUP_TOKEN_FILE` | Unset | Read the setup token from a regular file instead. |
@@ -73,8 +75,9 @@ starting the native app. Compose supplies its own development settings.
 | `BACKUP_DIR` | `backups` beside `DB_PATH` | Private directory for scheduled backups. |
 | `BACKUP_KEEP` | `14` | Non-negative integer retention count; `0` disables scheduled backups. |
 
-For each secret, set the value or its file path, not both. Files must be
-readable and nonempty after stripping one final LF or CRLF, and at most 64 KiB.
+Set either a nonempty secret value or a nonempty file path, not both.
+File-backed secrets require Unix and a readable regular file of at most 64 KiB.
+The file must remain nonempty after all trailing CR and LF bytes are stripped.
 
 ## Database choice
 
@@ -107,6 +110,9 @@ See [operations](docs/operations.md) for logs and account recovery.
 | Postgres | Revisit the database choice if a second host or managed recovery is required. |
 
 ## Dependency rationale
+
+The `env` module supplies typed settings, value-free diagnostics, redacted
+credentials and tests that keep this table and `.env.example` in sync.
 
 Go's standard library handles HTTP and HTML; vendored htmx adds partial
 updates without a frontend build. The pure-Go `modernc.org/sqlite` driver

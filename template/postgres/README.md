@@ -63,12 +63,14 @@ See [`.env.example`](.env.example) for copyable examples. The app reads
 exported environment variables; it does not load dotenv files itself. To use
 a trusted local copy, run `set -a; . ./.env; set +a` in your shell before
 starting the native app. Compose supplies its own development settings.
+An unset or empty variable uses its default. `make check-config` reports
+configuration problems together and does not echo setting values.
 
 | Variable | Default | Format and purpose |
 | --- | --- | --- |
 | `PORT` | `8080` | Integer 1–65535; HTTP listen port. |
 | `BASE_URL` | Local HTTP origin using `PORT` (no `:80`) | Browser-facing canonical origin, e.g. `https://app.example`, with no path, trailing slash, query, fragment, userinfo or explicit default port. Use lowercase scheme and host. |
-| `COOKIE_SECURE` | `false` | Only lowercase `false` (local HTTP allowed) or `true` (secure cookies, HTTPS origin and HSTS). Empty is invalid. |
+| `COOKIE_SECURE` | `false` | Exactly `false` for an HTTP origin, or `true` for an HTTPS origin (enables Secure cookies and HSTS). |
 | `SITE_NAME` | `My App` | Non-blank page display name. |
 | `SETUP_TOKEN` | Unset | Optional first-admin token, at least 32 characters without whitespace or control characters. |
 | `SETUP_TOKEN_FILE` | Unset | Read the setup token from a regular file instead. |
@@ -89,8 +91,9 @@ starting the native app. Compose supplies its own development settings.
 | `DATABASE_URL` | Development database from `compose.yaml` | PostgreSQL connection URL; the value carries a password. A `pool_max_conns` below 2 is refused. |
 | `DATABASE_URL_FILE` | Unset | Read the connection URL from a regular file instead. |
 
-For each secret, set the value or its file path, not both. Files must be
-readable and nonempty after stripping one final LF or CRLF, and at most 64 KiB.
+Set either a nonempty secret value or a nonempty file path, not both.
+File-backed secrets require Unix and a readable regular file of at most 64 KiB.
+The file must remain nonempty after all trailing CR and LF bytes are stripped.
 
 ## Database choice
 
@@ -125,6 +128,9 @@ See [operations](docs/operations.md) for logs and account recovery.
 | Managed PostgreSQL | Replace the accessory with a managed service if you need provider-run failover or point-in-time recovery; `DATABASE_URL` changes, and it must be a direct or session-mode connection, not a transaction-mode pooler (the migration lock is a session-level advisory lock). |
 
 ## Dependency rationale
+
+The `env` module supplies typed settings, value-free diagnostics, redacted
+credentials and tests that keep this table and `.env.example` in sync.
 
 Go's standard library handles HTTP and HTML; vendored htmx adds partial
 updates without a frontend build. `pgx` is the PostgreSQL driver and pool;

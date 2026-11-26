@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/17xande-dev/env"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/config"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/db"
 	"github.com/jackc/pgx/v5"
@@ -141,13 +142,25 @@ func dropStaleSchemas(ctx context.Context, pool *pgxpool.Pool, now time.Time) er
 func Config(t testing.TB) config.DB {
 	t.Helper()
 	connString, _ := NewSchema(t)
-	return config.DB{URL: connString}
+	return ConfigWithURL(connString)
+}
+
+// ConfigWithURL makes a database fixture without running config validation.
+func ConfigWithURL(connString string) config.DB {
+	r := env.New(func(key string) (string, bool) {
+		if key == "DATABASE_URL" {
+			return connString, true
+		}
+		return "", false
+	})
+	return config.DB{URL: r.Secret("DATABASE_URL")}
 }
 
 // SetEnv points process configuration at a fresh, empty schema.
 func SetEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("DATABASE_URL", Config(t).URL)
+	connString, _ := NewSchema(t)
+	t.Setenv("DATABASE_URL", connString)
 	t.Setenv("DATABASE_URL_FILE", "")
 }
 
