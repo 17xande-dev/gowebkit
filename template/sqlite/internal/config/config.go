@@ -48,6 +48,15 @@ type SMTP struct {
 	TLS      mailer.TLSPolicy
 }
 
+// MailerConfig returns the transport settings, including the unredacted
+// password. Do not log the returned config.
+func (s SMTP) MailerConfig() mailer.SMTPConfig {
+	return mailer.SMTPConfig{
+		Host: s.Host, Port: s.Port, Username: s.Username,
+		Password: s.Password.Reveal(), From: s.From, TLS: s.TLS,
+	}
+}
+
 // Load reads the environment and validates it without connecting to a service.
 func Load() (Config, error) { return load(os.LookupEnv) }
 
@@ -133,11 +142,14 @@ func loadSMTP(r *env.Reader) SMTP {
 		}
 		return cfg
 	}
-	if _, err := netip.ParseAddr(cfg.Host); err != nil &&
-		(strings.ContainsAny(cfg.Host, ":/@\\?#[]") || strings.IndexFunc(cfg.Host, unicode.IsSpace) >= 0) {
+	_, hostErr := netip.ParseAddr(cfg.Host)
+	invalidHost := hostErr != nil &&
+		(strings.ContainsAny(cfg.Host, ":/@\\?#[]") || strings.IndexFunc(cfg.Host, unicode.IsSpace) >= 0)
+	if invalidHost {
 		r.Fail("SMTP_HOST", "must be a hostname or IP address without a port")
 	}
-	if _, err := mail.ParseAddress(cfg.From); err != nil {
+	_, fromErr := mail.ParseAddress(cfg.From)
+	if fromErr != nil {
 		r.Fail("EMAIL_FROM", "must be a valid mailbox when SMTP is enabled")
 	}
 	if (cfg.Username != "") != cfg.Password.IsSet() || (cfg.Username != "" && strings.TrimSpace(cfg.Username) == "") {
@@ -146,7 +158,13 @@ func loadSMTP(r *env.Reader) SMTP {
 	if cfg.TLS == mailer.TLSNone && (cfg.Username != "" || cfg.Password.IsSet()) {
 		r.Fail("SMTP_TLS", "SMTP credentials require TLS")
 	}
-	// The relay constructor's host, sender, port and TLS checks are covered
-	// above; only the transport needs the unredacted password.
+	// Check the transport's own rules before startup can open the database.
+	// The constructor is offline; do not forward its diagnostic or duplicate
+	// the specific host and sender problems already reported above.
+	if !invalidHost && fromErr == nil {
+		if _, err := mailer.NewSMTPSender(cfg.MailerConfig()); err != nil {
+			r.Fail("SMTP_HOST", "invalid SMTP configuration")
+		}
+	}
 	return cfg
 }

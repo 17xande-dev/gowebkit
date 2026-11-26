@@ -186,6 +186,29 @@ func TestDefaultOriginOmitsHTTPDefaultPort(t *testing.T) {
 	}
 }
 
+func TestSMTPMailerConfig(t *testing.T) {
+	const password = " password-sample "
+	cfg, err := from(map[string]string{
+		"SMTP_HOST": "relay.example", "SMTP_PORT": "465", "SMTP_USERNAME": "sender",
+		"SMTP_PASSWORD": password, "EMAIL_FROM": "sender@example.com", "SMTP_TLS": "tls",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.SMTP.MailerConfig()
+	if got.Password != password || got.Password != cfg.SMTP.Password.Reveal() {
+		t.Error("transport did not receive the SMTP password verbatim")
+	}
+	got.Password = ""
+	want := mailer.SMTPConfig{
+		Host: "relay.example", Port: 465, Username: "sender",
+		From: "sender@example.com", TLS: mailer.TLSImplicit,
+	}
+	if got != want {
+		t.Error("transport did not receive the configured SMTP settings")
+	}
+}
+
 func TestSecretFiles(t *testing.T) {
 	dir := t.TempDir()
 	tokenFile := filepath.Join(dir, "token")

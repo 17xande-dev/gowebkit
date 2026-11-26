@@ -21,7 +21,6 @@ import (
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/handler"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/mail"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/store"
-	"github.com/17xande-dev/mailer"
 	"github.com/17xande-dev/password"
 )
 
@@ -130,10 +129,7 @@ func runServer(ctx context.Context, cfg config.Config, log *slog.Logger, open fu
 	}
 	defer func() { err = errors.Join(err, d.Close()) }()
 	accounts := store.New(d)
-	sender, delivering, err := mail.New(mailer.SMTPConfig{
-		Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username,
-		Password: cfg.SMTP.Password.Reveal(), From: cfg.SMTP.From, TLS: cfg.SMTP.TLS,
-	}, log)
+	sender, delivering, err := mail.New(cfg.SMTP.MailerConfig(), log)
 	if err != nil {
 		return fmt.Errorf("initialize mail: %w", err)
 	}
