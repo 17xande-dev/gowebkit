@@ -13,12 +13,14 @@ If `COOKIE_SECURE` contains an invalid value, validation uses `false` for
 the remaining checks, so an HTTPS origin can produce a second problem under
 `BASE_URL`. Correct `COOKIE_SECURE` and run the check again.
 
-To inspect database migrations without applying them, run
-`/myapp -migrate-status`. Run `/myapp -migrate` to apply pending migrations
-without starting the HTTP server.
-`/myapp -migrate-down` reverses one applied migration, but will not undo the
-baseline or create a missing database. If you need to go back past the
-baseline, use a verified backup instead.
+`/myapp -migrate-status` reads both migration histories without creating them.
+Lines prefixed with `outbox` come from `outbox_goose_version`.
+`/myapp -migrate` applies pending application migrations first, then outbox
+migrations, without starting the server or worker.
+`/myapp -migrate-down` reverses one application migration and refuses to undo
+the application baseline. It does not create a database or touch queue tables,
+job data or the outbox migration history. To reverse a queue schema change,
+follow the queue release's rollback instructions and rehearse on a copy.
 
 Use `/healthz` for readiness. It pings the database with a two-second deadline
 and responds with `200 ok` or `503`; responses are not cached. Do not use a
@@ -98,9 +100,46 @@ so a stolen session cannot guess the current password from many addresses.
 
 With no relay configured, the app does not deliver mail. Compose supplies a
 local Mailpit sink. Admins verify a relay from the running app with "Send a test
-message to me" on the Users page; with no relay it says messages are discarded,
+message to me" on the Users page. The confirmation means the job was queued;
+check the inbox for delivery. With no relay the page says messages are discarded,
 and the log line for a discarded message shows the subject and the number of
 recipients, never an address. The test action is limited per client address. For a real relay choose mandatory STARTTLS or
 implicit TLS; never send credentials over a plaintext connection. Microsoft
 Graph is an alternative supported by the mailer library, not a configured
 transport in this template.
+
+## Job queue
+
+From **Users → View job queue** (`/admin/jobs`), administrators can see counts
+by state and the 100 most recent dead jobs. Fix the underlying problem and
+click **Retry** beside the job. This puts it back in the queue and records
+the admin's account ID. If someone already retried it, the page says it is
+no longer available to retry. The worker logs job ID, kind, attempt, outcome
+and error class; it never logs job payloads or the text of mail errors.
+
+The `mail-test` kind in `internal/jobs` stores the address from the time of
+the request. SMTP 5xx refusals go dead on the first attempt. Other failures
+retry with backoff and become dead after six attempts. The queue can run a
+job more than once, for example after a process crash just after sending;
+design new job handlers so repeated execution is safe. When work depends
+on a database change, use `Enqueue` in that change's transaction and call
+`Wake` after it commits. The test button has no related write, so it uses
+`EnqueueNow`.
+
+An hourly cleanup removes done and discarded jobs older than `JOB_KEEP_DONE`
+(336 hours by default). Dead jobs are kept until handled. Jobs that succeeded
+have their payload cleared; restrict access to the database and its backups
+because unfinished jobs can still hold addresses.
+
+To retire a kind, stop enqueueing it and deploy a replacement handler that
+returns `outbox.Permanent` with a safe description. Wait until there are no
+pending or running jobs of that kind, including delayed jobs. Discard the dead
+jobs with the queue's `Discard` API, using an operator identifier, before
+removing the registration. Without a registered handler, pending jobs of
+that kind cannot run or be discarded.
+
+For upgrades that change queue tables, stop all old instances and back up
+the database before starting the new build or running `-migrate`. Give the
+process manager enough time to drain HTTP and join the job worker before
+forcing a stop. If killed during a job, the queue can recover the claim after
+its lease expires and may repeat the effect.

@@ -3,6 +3,36 @@
 Each entry says what changed in the templates and how to port it into an
 existing app. Both templates are released together under one version.
 
+## Unreleased
+
+Planned for v0.3.0 in both templates:
+
+- The admin test-message button queues a `mail-test` job. The worker delivers
+  it in the background, retries transient failures and parks permanent
+  refusals as dead. Admins can see counts and retry dead jobs at `/admin/jobs`.
+- Application migrations run before the queue's migrations.
+  `-migrate-status` lists both histories, and `-migrate-down` continues to
+  roll back application migrations only. `JOB_KEEP_DONE` controls how long
+  done and discarded jobs are retained.
+
+To port these changes into an app generated from v0.2.x:
+
+1. In the app module run `go get github.com/17xande-dev/outbox@v0.1.0`.
+   SQLite also uses `sqlitekit` v0.3.0. Port `internal/jobs` and the migration
+   wiring from `internal/db` in the matching template; keep your application
+   migrations and use the separate `outbox_goose_version` history.
+2. Port the queue construction, worker start and joined shutdown from
+   `main.go`, and the purge call in `cleanup.go`. Port `JOB_KEEP_DONE` with
+   the env loader, `.env.example` and README entry, then run `go mod tidy`.
+3. Replace the synchronous test-message handler with the enqueue handler.
+   Port the queue page, Users link, protected retry route, fixed notices and
+   route tests. Keep any application-specific jobs safe to repeat.
+4. Run `make check-config` and `make gate`. Stop the old app and back up the
+   database before applying the queue schema. Run `-migrate-status` after
+   migrating to check both histories, and send a test message to check that
+   the worker delivers it. Consult the operations guide for retries and
+   queue schema rollbacks.
+
 ## v0.2.0 (2026-11-26)
 
 What changed:

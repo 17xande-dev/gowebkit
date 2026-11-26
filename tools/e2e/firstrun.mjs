@@ -363,7 +363,7 @@ async function run() {
   // 6. The test message reaches the mail sink.
   await goto("/admin/users");
   await submit('form[action="/admin/mail-test"]');
-  check("6 the test message notice is shown", /A test message was sent/.test(await text()), await text());
+  check("6 the test message is queued", /A test message was queued/.test(await text()), await text());
   let delivered = false;
   for (let i = 0; i < 30 && !delivered; i++) {
     const res = await fetch(`${mailpit}/api/v1/messages`);
@@ -372,7 +372,7 @@ async function run() {
     if (!delivered) await sleep(200);
   }
   check("6 the message is in mailpit, addressed to the admin", delivered);
-  await inspect("mail-sent");
+  await inspect("mail-queued");
 
   // 7. Throughout.
   check("7 zero console errors", consoleProblems.length === 0 && expected.length === 0,

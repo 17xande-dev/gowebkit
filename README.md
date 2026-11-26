@@ -6,9 +6,9 @@ has been rehearsed locally but not on production infrastructure.**
 A project template for small Go + htmx web applications that have accounts and
 an admin area. Each template is a complete, runnable app (sign-in, sessions,
 request-forgery protection, a first-run setup token, an admin page for users,
-optional mail, a Docker and Kamal deployment, and its own tests),
+optional mail, a durable job queue, a Docker and Kamal deployment, and its own tests),
 built on these shared modules: `websec`, `ratelimit`, `password`, `sqlitekit`
-and `mailer` under `github.com/17xande-dev`.
+`mailer` and `outbox` under `github.com/17xande-dev`.
 
 Generated apps are forks from day one. They do not track the template; see
 [Upgrading an app](docs/upgrading-an-app.md) and the [changelog](CHANGELOG.md)
