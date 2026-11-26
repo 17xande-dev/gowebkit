@@ -3,6 +3,7 @@ package db_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/db"
 	"github.com/17xande-dev/gowebkit/template/postgres/internal/dbtest"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3/database"
@@ -378,5 +380,62 @@ func TestSchemaConstraints(t *testing.T) {
 				t.Fatal("the database accepted the row")
 			}
 		})
+	}
+}
+
+// When the server has no connection slot for the lock's own session, the
+// failure keeps the server's SQLSTATE class and nothing the driver wrote: not
+// the role, the host or the password.
+func TestLockConnectionFailureKeepsOnlyASafeClass(t *testing.T) {
+	cfg := dbtest.Config(t)
+	admin, err := pgx.Connect(t.Context(), cfg.ConnectionString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close(context.WithoutCancel(t.Context()))
+	const role, password = "single_slot_role_sample", "single-slot-sample-passphrase"
+	for _, q := range []string{
+		`DROP ROLE IF EXISTS ` + role,
+		`CREATE ROLE ` + role + ` LOGIN CONNECTION LIMIT 1 PASSWORD '` + password + `'`,
+	} {
+		if _, err := admin.Exec(t.Context(), q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(context.WithoutCancel(t.Context()), `DROP ROLE IF EXISTS `+role)
+	})
+	dsn, err := url.Parse(cfg.ConnectionString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dsn.User = url.UserPassword(role, password)
+	// The connectivity check keeps one pooled session, which is the role's
+	// only slot, so the lock's own session is refused.
+	_, err = db.Open(t.Context(), dbtest.ConfigWithURL(dsn.String()))
+	if err == nil || !strings.Contains(err.Error(), "open migration lock connection (SQLSTATE 53300)") {
+		t.Fatalf("Open error = %v, want the lock failure with SQLSTATE 53300", err)
+	}
+	for _, leak := range []string{role, password, dsn.Hostname(), "too many connections"} {
+		if strings.Contains(err.Error(), leak) {
+			t.Fatal("the lock failure repeats driver or server text")
+		}
+	}
+}
+
+func TestConnectionClassNamesOnlySafeClasses(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"server", fmt.Errorf("dial user@host: %w", &pgconn.PgError{Code: "53300", Message: "role \"x\" ..."}), "SQLSTATE 53300"},
+		{"deadline", fmt.Errorf("dial host: %w", context.DeadlineExceeded), "timed out"},
+		{"canceled", fmt.Errorf("dial host: %w", context.Canceled), "canceled"},
+		{"other", errors.New("password for user@host rejected"), "connection failed"},
+	} {
+		if got := db.ConnectionClass(tt.err); got != tt.want {
+			t.Errorf("%s: class = %q, want %q", tt.name, got, tt.want)
+		}
 	}
 }

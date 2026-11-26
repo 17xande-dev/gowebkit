@@ -244,6 +244,24 @@ func migrate(ctx context.Context, cfg config.DB, step func(context.Context, *goo
 	return &DB{pool}, nil
 }
 
+// connectionClass names why a connection failed without any of the text the
+// driver wrote, which can quote the user, the host or a server message.
+func connectionClass(err error) string {
+	var server *pgconn.PgError
+	switch {
+	case errors.As(err, &server) && len(server.Code) == 5:
+		// The server's five-character class, such as 53300 when it has no
+		// connection slots left.
+		return "SQLSTATE " + server.Code
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timed out"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	default:
+		return "connection failed"
+	}
+}
+
 // migrationLock takes a session-level advisory lock on a connection of its
 // own, waiting at most a minute. The key includes the schema, so a database
 // shared by tests that each use a private schema does not serialise them,
@@ -256,8 +274,9 @@ func migrationLock(ctx context.Context, pool *pgxpool.Pool) (func() error, error
 	defer cancelConnect()
 	conn, err := pgx.ConnectConfig(connectCtx, pool.Config().ConnConfig)
 	if err != nil {
-		// Connection errors may include the user or address.
-		return nil, errors.New("open migration lock connection")
+		// Connection errors may include the user or address, so only a
+		// class that cannot carry them is kept.
+		return nil, fmt.Errorf("open migration lock connection (%s)", connectionClass(err))
 	}
 	release := func() error {
 		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)

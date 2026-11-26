@@ -7,6 +7,8 @@ import "time"
 var (
 	Connect  = connect
 	Provider = provider
+
+	ConnectionClass = connectionClass
 )
 
 // SetLockWait shortens the migration-lock wait for one test and returns the
