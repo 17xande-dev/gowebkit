@@ -515,7 +515,7 @@ func TestMailTestPermanentRefusalIsNotRetried(t *testing.T) {
 
 func TestMailTestRefusalKeepsAddressOutOfLogs(t *testing.T) {
 	const address = "distinctive-refusal@example.com"
-	relay := newRefusingRelay(t, address)
+	relay := newRefusingRelay(t, address, "550 5.1.1 refused")
 	a := newAdminSiteWithMail(t, relay)
 	a.seed(t, address, auth.RoleAdmin)
 	c := a.signedIn(t, address)
@@ -529,7 +529,35 @@ func TestMailTestRefusalKeepsAddressOutOfLogs(t *testing.T) {
 	webtest.NoSecrets(t, a.logs.String(), `"error_class":"*outbox.permanentError"`, address)
 }
 
-func newRefusingRelay(t *testing.T, address string) mailer.Sender {
+// A temporary refusal takes the default description path. Whatever the relay
+// quotes, such as the recipient, must reach neither the stored text, the admin
+// page nor the logs.
+func TestMailTestTransientRefusalKeepsAddressOutOfStoredTextPageAndLogs(t *testing.T) {
+	const address = "quoted-recipient@example.com"
+	relay := newRefusingRelay(t, address, "450 4.2.1 mailbox busy")
+	a := newAdminSiteWithMail(t, relay)
+	a.seed(t, address, auth.RoleAdmin)
+	c := a.signedIn(t, address)
+	c.Page("/admin/users").Form("/admin/mail-test").Submit().
+		WantRedirect(http.StatusSeeOther, "/admin/users?notice=mail-queued")
+	outboxtest.Drain(t, a.queue)
+	found := outboxtest.Enqueued(t, a.queue, outbox.Filter{Kind: "mail-test"})
+	if len(found) != 1 || found[0].State == outbox.StateDone {
+		t.Fatalf("expected one job still pending after a 4xx reply: %+v", found)
+	}
+	const fixed = "Job failed; see the server log for its error class."
+	if found[0].LastError != fixed {
+		t.Fatalf("stored description = %q, want the fixed default", found[0].LastError)
+	}
+	if page := c.Get("/admin/jobs").Body; strings.Contains(page, address) {
+		t.Fatal("the queue page shows the recipient")
+	}
+	webtest.NoSecrets(t, a.logs.String(), `"error_class"`, address)
+}
+
+// newRefusingRelay answers every recipient with reply followed by the address,
+// the way a relay quotes what it was given.
+func newRefusingRelay(t *testing.T, address, reply string) mailer.Sender {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -556,7 +584,7 @@ func newRefusingRelay(t *testing.T, address string) mailer.Sender {
 			case "EHLO", "HELO", "NOOP", "MAIL", "RSET":
 				_, _ = io.WriteString(conn, "250 OK\r\n")
 			case "RCPT":
-				_, _ = io.WriteString(conn, "550 5.1.1 refused <"+address+">\r\n")
+				_, _ = io.WriteString(conn, reply+" <"+address+">\r\n")
 			case "QUIT":
 				_, _ = io.WriteString(conn, "221 Bye\r\n")
 				return
