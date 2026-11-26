@@ -18,8 +18,19 @@ type Queue = outbox.Queue[queueTx]
 // the recipient address captured when the job was enqueued.
 const MailTest = "mail-test"
 
-var invalidAddress = errors.New("Invalid recipient address.")
-var smtpRefusal = errors.New("The mail server permanently refused the message.")
+// Display texts are stored with a failed job and shown to administrators, so
+// they are fixed here and never derived from an error. The sentinels below are
+// lower case, as error strings are, and only select which text applies.
+const (
+	invalidAddressText = "Invalid recipient address."
+	smtpRefusalText    = "The mail server permanently refused the message."
+	defaultFailureText = "Job failed; see the server log for its error class."
+)
+
+var (
+	invalidAddress = errors.New("invalid recipient address")
+	smtpRefusal    = errors.New("mail server permanently refused the message")
+)
 
 // New constructs the queue. Start it only after the database is migrated.
 func New(d *db.DB, sender mailer.Sender, siteName string, opts outbox.Options) (*Queue, error) {
@@ -28,11 +39,11 @@ func New(d *db.DB, sender mailer.Sender, siteName string, opts outbox.Options) (
 		// fixed descriptions so the admin page never renders those details.
 		switch {
 		case errors.Is(err, invalidAddress):
-			return invalidAddress.Error()
+			return invalidAddressText
 		case errors.Is(err, smtpRefusal):
-			return smtpRefusal.Error()
+			return smtpRefusalText
 		default:
-			return "Job failed; see the server log for its error class."
+			return defaultFailureText
 		}
 	}
 	return outbox.New(storage(d), map[string]outbox.Kind[queueTx]{
