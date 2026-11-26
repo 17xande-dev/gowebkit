@@ -3,9 +3,9 @@
 Each entry says what changed in the templates and how to port it into an
 existing app. Both templates are released together under one version.
 
-## Unreleased
+## v0.2.0 (2026-11-26)
 
-Planned for v0.2.0:
+What changed:
 
 - **Defaults and diagnostics.** Unset and empty settings both select the
   default; nonempty booleans still accept exactly `true` or `false`. Startup
