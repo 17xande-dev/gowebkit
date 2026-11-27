@@ -2,3 +2,5 @@
 # The accepted author and committer identity: the SHA-256 of its lower-cased
 # "Name <email>" (copy the digest from a failure), so the name is not repeated here.
 identity	19aac9d17ea46afb739a8a041d65326f0143cbadfbbad99b775fa2ded3eca364	"maintainer"
+# An older published identity on tagged history; remediation by rewrite would break consumers.
+identity	fe505aaedd204e73651e64de346bd66d2569d89e7242925a6ffaec2f276d9ead	"older published history"
