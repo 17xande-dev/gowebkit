@@ -53,7 +53,7 @@ func (s *site) login(w http.ResponseWriter, r *http.Request) {
 		} else {
 			s.log.WarnContext(ctx, "sign-in failed", "user_id", user.ID, "client_ip", ip)
 		}
-		s.render(w, r, http.StatusUnprocessableEntity, "plain/login", "Sign in", pageData{Message: signInFailed, Next: dest})
+		s.render(w, r, http.StatusUnprocessableEntity, "plain/login", "Sign in", pageData{Message: signInFailed, Next: dest, Email: input})
 	}
 	var user auth.User
 	var err error

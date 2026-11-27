@@ -122,6 +122,7 @@ type pageData struct {
 	Title    string
 	CSRF     string
 	Next     string
+	Email    string
 	Message  string
 	UserName string
 	Notice   string

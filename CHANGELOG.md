@@ -3,6 +3,37 @@
 Each entry says what changed in the templates and how to port it into an
 existing app. Both templates are released together under one version.
 
+## Unreleased (v0.3.1)
+
+What changed:
+
+- The sign-in page focuses the email field when it loads. After a failed
+  attempt the page keeps the submitted email and focuses the password field
+  instead. The password is never written back, and a wrong password and an
+  unknown account render identical markup. The page uses the `autofocus`
+  attribute only; there is no script.
+
+To port this into an app generated from v0.3.0:
+
+1. In `internal/handler/handler.go` add `Email string` to `pageData`, after
+   `Next`.
+2. In `internal/handler/auth.go`, in the `failure` closure of `login`, pass the
+   submitted address back: `pageData{Message: signInFailed, Next: dest, Email: input}`.
+   `input` is the raw form value, so the page shows exactly what was typed, and
+   the template escapes it.
+3. In `internal/handler/templates/pages/plain/login.html` replace the two
+   inputs with:
+
+   ```html
+   <input type="email" name="email" autocomplete="username" value="{{.Email}}" required{{if not .Email}} autofocus{{end}}>
+   <input type="password" name="password" autocomplete="current-password" required{{if .Email}} autofocus{{end}}>
+   ```
+
+4. Remove any other `autofocus` on that page. If a test asserted that the
+   failed-attempt page does not contain the submitted email, change it to expect
+   the escaped value in the email field. Compare the wrong-password and
+   unknown-account pages after masking that value.
+
 ## v0.3.0 (2026-11-26)
 
 What changed:

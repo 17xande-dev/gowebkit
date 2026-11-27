@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
 	"os"
@@ -151,10 +152,11 @@ func TestSignInFailuresAndNoSecrets(t *testing.T) {
 			logs.Reset()
 			res := c.With(t).Page("/login").Form("/login").Set("email", tt.email).Set("password", tt.password).Submit()
 			res.WantStatus(http.StatusUnprocessableEntity)
-			if !strings.Contains(res.Body, signInFailed) || strings.Contains(res.Body, tt.email) || strings.Contains(res.Body, tt.password) {
-				t.Fatal("sign-in response lost its generic message or echoed credentials")
+			if !strings.Contains(res.Body, signInFailed) || strings.Contains(res.Body, tt.password) {
+				t.Fatal("sign-in response lost its generic message or echoed the password")
 			}
-			bodies = append(bodies, tokenValue.ReplaceAllString(res.Body, "${1}"))
+			body := tokenValue.ReplaceAllString(res.Body, "${1}")
+			bodies = append(bodies, strings.ReplaceAll(body, tt.email, "ADDRESS"))
 			text := logs.String()
 			webtest.NoSecrets(t, text, tt.marker, tt.email, tt.password, user.PasswordHash, disabled.PasswordHash)
 			if !strings.Contains(text, `"client_ip":`) {
@@ -380,6 +382,58 @@ func TestDirectRouteMountsAreExplicit(t *testing.T) {
 
 var secureSession = webtest.CookieWant{
 	Name: "__Host-session", Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+}
+
+// The sign-in page puts focus on the address field when it is empty and on the
+// password field once the address is kept after a failed attempt. A wrong
+// password and an unknown account must look identical, and the password is
+// never written back.
+func TestLoginFocus(t *testing.T) {
+	c, accounts, _, _ := authFixture(t)
+	seedAccount(t, accounts, testEmail, testPassword)
+	const address = `o"brien@example.com`
+	const typed = "typed-credential-for-focus-test"
+	emailTag := regexp.MustCompile(`<input[^>]*name="email"[^>]*>`)
+	passTag := regexp.MustCompile(`<input[^>]*name="password"[^>]*>`)
+	focus := func(body string) (email, pass string) {
+		email, pass = emailTag.FindString(body), passTag.FindString(body)
+		if email == "" || pass == "" {
+			t.Fatal("sign-in page lacks the address or password field")
+		}
+		return email, pass
+	}
+
+	t.Run("fresh page", func(t *testing.T) {
+		res := c.With(t).Get("/login")
+		email, pass := focus(res.Body)
+		if !strings.Contains(email, " autofocus") || strings.Contains(pass, "autofocus") {
+			t.Fatalf("fresh page focus wrong: %s | %s", email, pass)
+		}
+	})
+	var failed []string
+	for _, tt := range []struct{ name, email string }{
+		{"wrong password", testEmail},
+		{"unknown account", address},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			res := c.With(t).Page("/login").Form("/login").Set("email", tt.email).Set("password", typed).Submit()
+			res.WantStatus(http.StatusUnprocessableEntity)
+			email, pass := focus(res.Body)
+			if strings.Contains(email, "autofocus") || !strings.Contains(pass, " autofocus") {
+				t.Fatalf("failed attempt focus wrong: %s | %s", email, pass)
+			}
+			if !strings.Contains(email, `value="`+html.EscapeString(tt.email)+`"`) {
+				t.Fatalf("address not kept (escaped): %s", email)
+			}
+			if strings.Contains(res.Body, typed) {
+				t.Fatal("the submitted password was written back")
+			}
+			failed = append(failed, strings.ReplaceAll(strings.ReplaceAll(email, html.EscapeString(tt.email), "X"), "autofocus", "")+pass)
+		})
+	}
+	if len(failed) == 2 && failed[0] != failed[1] {
+		t.Fatalf("wrong password and unknown account differ in field markup:\n%s\n%s", failed[0], failed[1])
+	}
 }
 
 func authFixture(t *testing.T) (*webtest.Client, *store.Store, http.Handler, *webtest.Logs) {
