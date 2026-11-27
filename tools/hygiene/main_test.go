@@ -18,7 +18,7 @@ const (
 	fakeApp  = "quuxapp"
 	// Built at run time so this file does not trip the rules it tests.
 	strayDomain = "corp." + "example.org"
-	strayIP     = "10.1." + "2.3"
+	strayIP     = "8.8." + "4.4"
 )
 
 // env isolates a run from the developer's own configuration.
@@ -281,6 +281,59 @@ func TestGenericRules(t *testing.T) {
 	testrepo.Write(t, root, "note.txt", "GET /users/42/ and /usr/local and 192.0.2.7\n")
 	if out, err := newEnv(t, "").run(root); err != nil {
 		t.Fatalf("a lower-case route and an example address are fine: %v\n%s", err, out)
+	}
+}
+
+// TestReservedExamples removes one exemption at a time in the mutation check:
+// each case must pass the scan, and the final test shows real values still fail.
+func TestReservedExamples(t *testing.T) {
+	cases := map[string]string{
+		"example top-level domain": "mail person@mail.example",
+		"example.com":              "mail person@example.com",
+		"test top-level domain":    "mail person@host.test",
+		"invalid top-level domain": "mail person@host.invalid",
+		"loopback":                 "bind 127.0.0.1 and 127.1.2.3",
+		"unspecified":              "bind 0.0.0.0",
+		"private 10/8":             "hop 10.0.0.7",
+		"private 172.16/12":        "hop 172.16.5.1 and 172.31.255.254",
+		"private 192.168/16":       "hop 192.168.1.20",
+		"link-local":               "hop 169.254.10.20",
+		"documentation 1":          "hop 192.0.2.7",
+		"documentation 2":          "hop 198.51.100.7",
+		"documentation 3":          "hop 203.0.113.7",
+		"cidr private":             "allow 10.0.0.0/8 and 172.16.0.0/12 and 192.168.0.0/16",
+		"cidr loopback and link":   "allow 127.0.0.0/8 and 169.254.0.0/16",
+		"cidr documentation":       "allow 192.0.2.0/24 and 198.51.100.0/24 and 203.0.113.0/24",
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			root := fixture(t)
+			testrepo.Write(t, root, "note.txt", content+"\n")
+			if out, err := newEnv(t, "").run(root); err != nil {
+				t.Fatalf("a reserved example should pass: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
+func TestReservedExemptionsStopShort(t *testing.T) {
+	cases := map[string]string{
+		"public address":                       "host " + strayIP,
+		"public cidr":                          "allow 8.8." + "0.0/16",
+		"just outside 172.16/12":               "hop 172.32." + "0.1",
+		"just outside link-local":              "hop 169.253." + "0.1",
+		"mailbox on a real domain":             "mail person@" + strayDomain,
+		"domain merely ending in .example.org": "mail person@host.example." + "org",
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			root := fixture(t)
+			testrepo.Write(t, root, "note.txt", content+"\n")
+			out, err := newEnv(t, "").run(root)
+			if err == nil || !strings.Contains(out, "file note.txt:1:") {
+				t.Fatalf("want a match: %v\n%s", err, out)
+			}
+		})
 	}
 }
 

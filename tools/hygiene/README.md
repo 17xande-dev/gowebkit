@@ -10,9 +10,13 @@ or the text of a private rule.
 
 - **Generic rules** are in the source: mailbox addresses, IPv4 addresses and
   home-directory shapes for several systems. Example
-  mailbox domains (`example.com`, `.test`, `.invalid`) and the IPv4 addresses
-  `127.0.0.1`, `0.0.0.0` and the three RFC 5737 documentation blocks are
-  built-in exceptions. This repository is public, so no rule in the source may
+  mailbox domains (`example.com` and the reserved `.example`, `.test` and
+  `.invalid` top-level domains) and the IPv4 addresses that cannot name a public
+  host are built-in exceptions: `0.0.0.0`, loopback (`127.0.0.0/8`), private
+  ranges (RFC 1918), link-local (`169.254.0.0/16`) and the three RFC 5737
+  documentation blocks. The address part of a CIDR prefix such as `10.0.0.0/8`
+  is judged the same way. Public addresses and other mailboxes are still flagged.
+  This repository is public, so no rule in the source may
   name an organisation, person, host, application, place or provider.
 - **Private rules** come from a file kept outside the repository: one
   case-insensitive Go regular expression per line, `#` for comments. The tool

@@ -560,19 +560,33 @@ func allowedExample(pattern, match string) bool {
 	switch pattern {
 	case emailPattern:
 		_, domain, _ := strings.Cut(strings.ToLower(match), "@")
-		return domain == "example.com" || strings.HasSuffix(domain, ".test") || strings.HasSuffix(domain, ".invalid")
+		return domain == "example.com" || strings.HasSuffix(domain, ".example") ||
+			strings.HasSuffix(domain, ".test") || strings.HasSuffix(domain, ".invalid")
 	case ipv4Pattern:
 		ip, err := netip.ParseAddr(match)
 		if err != nil {
 			return false
 		}
-		a := ip.As4()
-		return a == [4]byte{127, 0, 0, 1} || a == [4]byte{} ||
-			[3]byte(a[:3]) == [3]byte{192, 0, 2} || [3]byte(a[:3]) == [3]byte{198, 51, 100} ||
-			[3]byte(a[:3]) == [3]byte{203, 0, 113}
+		return reservedAddr(ip)
 	default:
 		return false
 	}
+}
+
+// reservedAddr reports whether an IPv4 address cannot name a public host:
+// the unspecified address, loopback (127/8), private ranges (RFC 1918),
+// link-local (169.254/16) and the documentation blocks (RFC 5737). The address
+// part of a CIDR prefix such as 10.0.0.0/8 is judged the same way.
+func reservedAddr(ip netip.Addr) bool {
+	if ip.IsUnspecified() || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+		return true
+	}
+	a := ip.As4()
+	switch [3]byte(a[:3]) {
+	case [3]byte{192, 0, 2}, [3]byte{198, 51, 100}, [3]byte{203, 0, 113}:
+		return true
+	}
+	return false
 }
 
 func readLines(r io.Reader, visit func(int, string)) error {
