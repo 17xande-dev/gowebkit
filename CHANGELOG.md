@@ -3,7 +3,7 @@
 Each entry says what changed in the templates and how to port it into an
 existing app. Both templates are released together under one version.
 
-## Unreleased (v0.3.1)
+## v0.3.1 (2026-11-27)
 
 What changed:
 
