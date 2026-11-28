@@ -1,6 +1,6 @@
 # gowebkit
 
-**Status: v0.3.2 is the latest release.** `gonew` is experimental. See
+**Status: v0.3.3 is the latest release.** `gonew` is experimental. See
 [Deployment verification](#deployment-verification) for what has been
 rehearsed with Kamal.
 

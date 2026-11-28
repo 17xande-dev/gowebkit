@@ -3,7 +3,7 @@
 Each entry says what changed in the templates and how to port it into an
 existing app. Both templates are released together under one version.
 
-## Unreleased (v0.3.3)
+## v0.3.3 (2026-11-28)
 
 Both templates give Kamal an explicit 30-second container stop window so
 HTTP draining, background work and database close can finish before Docker
