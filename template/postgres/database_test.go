@@ -83,6 +83,44 @@ func TestMigrationCommands(t *testing.T) {
 	command("-migrate-status", "\noutbox 0001 applied ")
 }
 
+func TestOutboxMigrationStatus(t *testing.T) {
+	setTestEnv(t, 8080)
+	dbtest.SetEnv(t)
+	// The CLI has always printed the wall-clock value in the zone-less
+	// goose column with a Z suffix, even for a non-UTC database session.
+	t.Setenv("DATABASE_URL", os.Getenv("DATABASE_URL")+"&options=-c%20TimeZone%3DAsia%2FTokyo")
+	d, err := db.Open(t.Context(), mustConfig(t).DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	var out, stderr bytes.Buffer
+	for _, applied := range []bool{true, false} {
+		// An existing row counts as applied even if a legacy writer set
+		// is_applied to false: status must agree with the queue migrator.
+		if _, err := d.Pool().Exec(t.Context(), `UPDATE outbox_goose_version
+			SET is_applied = $1, tstamp = '2020-01-02 03:04:05' WHERE version_id = 1`, applied); err != nil {
+			t.Fatal(err)
+		}
+		out.Reset()
+		err := run([]string{"-migrate-status"}, &out, &stderr)
+		if err != nil || stderr.Len() != 0 || !strings.HasSuffix(out.String(), "\noutbox 0001 applied 2020-01-02T03:04:05Z\n") {
+			t.Fatalf("is_applied=%t: stdout=%q stderr=%q error=%v; want queue migration and its stored timestamp", applied, &out, &stderr, err)
+		}
+	}
+
+	if _, err := d.Pool().Exec(t.Context(), `INSERT INTO outbox_goose_version
+		(version_id, is_applied) VALUES (2, true)`); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	err = run([]string{"-migrate-status"}, &out, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "migration 2 is newer than this build") || out.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("newer history: stdout=%q stderr=%q error=%v; want a newer migration error and no status output", &out, &stderr, err)
+	}
+}
+
 func mustConfig(t *testing.T) config.Config {
 	t.Helper()
 	cfg, err := config.Load()

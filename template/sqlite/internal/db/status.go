@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/17xande-dev/gowebkit/template/sqlite/internal/config"
+	"github.com/17xande-dev/outbox/sqlitestore"
 	"github.com/17xande-dev/sqlitekit/goosestrict"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/database"
@@ -48,7 +49,22 @@ func Status(ctx context.Context, cfg config.DB) (_ []MigrationStatus, err error)
 		return nil, dirErr
 	}
 
-	pool, err := openStatusPool(path)
+	missing := dirErr != nil
+	if !missing {
+		_, err := os.Stat(path)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+		missing = err != nil
+	}
+	var pool *sql.DB
+	if missing {
+		// Let outbox enumerate its pending migrations without creating the
+		// real database or opening a file that appeared after the stat.
+		pool, err = sql.Open("sqlite", ":memory:")
+	} else {
+		pool, err = openStatusPool(path)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -67,15 +83,8 @@ func Status(ctx context.Context, cfg config.DB) (_ []MigrationStatus, err error)
 	if err != nil {
 		return nil, err
 	}
-	if dirErr != nil {
-		// Report the snapshot from before a concurrent boot could create
-		// the directory, rather than querying its new file without the lock.
-		return append(pending(p), pendingOutbox), nil
-	}
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return append(pending(p), pendingOutbox), nil
-	} else if err != nil {
-		return nil, err
+	if missing {
+		return outboxStatus(ctx, pool, pending(p))
 	}
 	exists, err := store.(database.StoreExtender).TableExists(ctx, pool)
 	if err != nil {
@@ -105,11 +114,11 @@ func Status(ctx context.Context, cfg config.DB) (_ []MigrationStatus, err error)
 }
 
 func outboxStatus(ctx context.Context, pool *sql.DB, app []MigrationStatus) ([]MigrationStatus, error) {
-	store, err := goosestrict.NewStoreTable(outboxHistory)
+	queue, err := sqlitestore.MigrationStatus(ctx, pool)
 	if err != nil {
 		return nil, err
 	}
-	return appendOutboxStatus(ctx, pool, store, app)
+	return appendOutboxMigrations(app, queue), nil
 }
 
 func openStatusPool(path string) (*sql.DB, error) {

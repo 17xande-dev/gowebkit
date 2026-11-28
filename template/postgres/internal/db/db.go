@@ -176,6 +176,10 @@ func versionTableExists(ctx context.Context, sqlDB *sql.DB) (bool, error) {
 
 // connect opens a pool and checks that the server answers.
 func connect(ctx context.Context, cfg config.DB) (*pgxpool.Pool, error) {
+	return connectWithTimeZone(ctx, cfg, "")
+}
+
+func connectWithTimeZone(ctx context.Context, cfg config.DB, timeZone string) (*pgxpool.Pool, error) {
 	pc, err := pgxpool.ParseConfig(cfg.ConnectionString())
 	if err != nil {
 		// The parser's message can quote the connection string.
@@ -186,6 +190,12 @@ func connect(ctx context.Context, cfg config.DB) (*pgxpool.Pool, error) {
 	// wait for the connection it already holds.
 	if pc.MaxConns < config.MinPoolConns {
 		return nil, errors.New(config.PoolSizeMessage)
+	}
+	if timeZone != "" {
+		pc.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			_, err := conn.Exec(ctx, `SELECT set_config('TimeZone', $1, false)`, timeZone)
+			return err
+		}
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, pc)
 	if err != nil {

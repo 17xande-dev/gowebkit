@@ -73,6 +73,45 @@ func TestMigrationCommands(t *testing.T) {
 	command("-migrate-status", "\noutbox 0001 applied ")
 }
 
+func TestOutboxMigrationStatus(t *testing.T) {
+	setTestEnv(t, 8080)
+	dbtest.SetEnv(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.Open(t.Context(), cfg.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	var out, stderr bytes.Buffer
+	for _, applied := range []int{1, 0} {
+		// An existing row counts as applied even if a legacy writer set
+		// is_applied to false: status must agree with the queue migrator.
+		if _, err := d.ExecContext(t.Context(), `UPDATE outbox_goose_version
+			SET is_applied = ?, tstamp = '2020-01-02 03:04:05' WHERE version_id = 1`, applied); err != nil {
+			t.Fatal(err)
+		}
+		out.Reset()
+		err := run([]string{"-migrate-status"}, &out, &stderr)
+		if err != nil || stderr.Len() != 0 || !strings.HasSuffix(out.String(), "\noutbox 0001 applied 2020-01-02T03:04:05Z\n") {
+			t.Fatalf("is_applied=%d: stdout=%q stderr=%q error=%v; want queue migration and its stored timestamp", applied, &out, &stderr, err)
+		}
+	}
+
+	if _, err := d.ExecContext(t.Context(), `INSERT INTO outbox_goose_version
+		(version_id, is_applied) VALUES (2, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	err = run([]string{"-migrate-status"}, &out, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "migration 2 is newer than this build") || out.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("newer history: stdout=%q stderr=%q error=%v; want a newer migration error and no status output", &out, &stderr, err)
+	}
+}
+
 func TestMigrationDownRefusals(t *testing.T) {
 	for _, name := range []string{"missing file", "missing directory", "empty", "baseline"} {
 		t.Run(name, func(t *testing.T) {

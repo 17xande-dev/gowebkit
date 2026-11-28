@@ -3,6 +3,25 @@
 Each entry says what changed in the templates and how to port it into an
 existing app. Both templates are released together under one version.
 
+## Unreleased (v0.3.2)
+
+Both templates depend on outbox v0.2.0. `-migrate-status` prints the queue's
+migrations and applied timestamps using the library's `MigrationStatus` API.
+
+To port this into an app generated from v0.3.1:
+
+1. Run `go get github.com/17xande-dev/outbox@v0.2.0` and `go mod tidy`.
+2. Delete the copied history reader in `internal/db/outbox_status.go`,
+   including its hard-coded latest queue migration version. Keep the
+   `MigrationStatus` result type used by the CLI.
+3. In `internal/db/status.go`, call `sqlitestore.MigrationStatus(ctx, pool)`
+   (SQLite) or `pgxstore.MigrationStatus(ctx, pool)` (PostgreSQL). Append the
+   returned migration rows to the application's status, keeping their
+   applied timestamps and the `outbox` prefix. On SQLite, use an empty
+   in-memory database to list pending queue migrations if the file is absent.
+   On PostgreSQL, read with UTC status sessions to preserve the CLI's
+   display of stored timestamps.
+
 ## v0.3.1 (2026-11-27)
 
 What changed:
