@@ -7,3 +7,7 @@ identity	fe505aaedd204e73651e64de346bd66d2569d89e7242925a6ffaec2f276d9ead	"older
 # Public ranges written as CIDR halves in an example (the prefix is not an address of a host).
 file	README.md	"128.0.0.0"
 commit	296dec0965068598d06f4072725c2e0a76b8d2af	"128.0.0.0"
+# Co-author trailers naming a vendor no-reply address (not a person) in three published commits.
+commit	18f40a71141e3912d59c561e4db05ff0c99e0dee	"noreply@anthropic.com"
+commit	4c4e519c446b63651329b828004b7f62a2ef23cb	"noreply@anthropic.com"
+commit	4f8f942ed1a07a3ba15003c133cda01f469946a8	"noreply@anthropic.com"
