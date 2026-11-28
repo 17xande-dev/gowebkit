@@ -3,7 +3,7 @@
 Each entry says what changed in the templates and how to port it into an
 existing app. Both templates are released together under one version.
 
-## Unreleased (v0.3.2)
+## v0.3.2 (2026-11-28)
 
 Both templates depend on outbox v0.2.0. `-migrate-status` prints the queue's
 migrations and applied timestamps using the library's `MigrationStatus` API.
