@@ -1,4 +1,6 @@
 # Optional exceptions; see README.md for the format.
+commit	8358902c81f36b7783397d4d3edd709253f6969b	"128\u002e0.0.0"
+commit	8358902c81f36b7783397d4d3edd709253f6969b	"noreply\u0040anthropic.com"
 # The accepted author and committer identity: the SHA-256 of its lower-cased
 # "Name <email>" (copy the digest from a failure), so the name is not repeated here.
 identity	19aac9d17ea46afb739a8a041d65326f0143cbadfbbad99b775fa2ded3eca364	"maintainer"
