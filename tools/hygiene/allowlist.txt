@@ -11,3 +11,10 @@ commit	296dec0965068598d06f4072725c2e0a76b8d2af	"128.0.0.0"
 commit	18f40a71141e3912d59c561e4db05ff0c99e0dee	"noreply@anthropic.com"
 commit	4c4e519c446b63651329b828004b7f62a2ef23cb	"noreply@anthropic.com"
 commit	4f8f942ed1a07a3ba15003c133cda01f469946a8	"noreply@anthropic.com"
+# The records above spell their matched text in full, so this file and the two commits
+# that added them need records too; the text here is escaped so these lines match nothing.
+file	tools/hygiene/allowlist.txt	"128.0.0.0"
+file	tools/hygiene/allowlist.txt	"noreply@anthropic.com"
+commit	c6b5f7597ed154ebe6d6a07c1e51fbb3bd701dc1	"128.0.0.0"
+commit	77645054b86a793ce5d28ec66fc762c0eecd0beb	"noreply@anthropic.com"
+commit	77645054b86a793ce5d28ec66fc762c0eecd0beb	"128.0.0.0"
