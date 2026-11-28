@@ -1,7 +1,8 @@
 # gowebkit
 
-**Status: v0.1.0. Experimental: `gonew` is experimental, and Kamal deployment
-has been rehearsed locally but not on production infrastructure.**
+**Status: v0.3.2 is the latest release.** `gonew` is experimental. See
+[Deployment verification](#deployment-verification) for what has been
+rehearsed with Kamal.
 
 A project template for small Go + htmx web applications that have accounts and
 an admin area. Each template is a complete, runnable app (sign-in, sessions,

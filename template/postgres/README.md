@@ -80,7 +80,7 @@ configuration problems together and does not echo setting values.
 | `PASSWORD_CONCURRENCY` | `2` | Integer 1–64; size for available memory (about 64 MiB per operation). |
 | `LOG_LEVEL` | `info` | Minimum severity: `debug`, `info`, `warn` or `error`. |
 | `LOG_FORMAT` | `json` | `json` or `text` output. |
-| `SHUTDOWN_TIMEOUT` | `15s` | Positive Go duration for draining HTTP requests. |
+| `SHUTDOWN_TIMEOUT` | `15s` | Positive Go duration for draining HTTP requests. Keep `SHUTDOWN_TIMEOUT` + 15 s ≤ `stop_timeout` in `config/deploy.yml` to allow background work to stop and the database to close, with at least 5 s to spare. |
 | `JOB_KEEP_DONE` | `336h` | Positive Go duration for keeping done and discarded jobs. Dead jobs are kept until handled. |
 | `SMTP_HOST` | Unset | Hostname or IP without a port. Empty disables mail. |
 | `SMTP_PORT` | `587` | Integer 1–65535; relay port. |

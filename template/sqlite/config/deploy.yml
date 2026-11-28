@@ -1,6 +1,10 @@
 service: myapp
 image: OWNER/myapp
 
+# Allow the HTTP drain, worker and maintenance joins, and database close,
+# with at least 5 seconds to spare. Without this, Docker allows only 10 seconds.
+stop_timeout: 30
+
 servers:
   web:
     hosts:

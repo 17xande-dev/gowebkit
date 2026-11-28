@@ -3,6 +3,18 @@
 Each entry says what changed in the templates and how to port it into an
 existing app. Both templates are released together under one version.
 
+## Unreleased (v0.3.3)
+
+Both templates give Kamal an explicit 30-second container stop window so
+HTTP draining, background work and database close can finish before Docker
+forces the container to exit.
+
+To port this into an app generated from v0.3.2:
+
+1. Add top-level `stop_timeout: 30` to `config/deploy.yml`. If you increased
+   `SHUTDOWN_TIMEOUT`, allow at least another 15 seconds for the worker,
+   maintenance, database close and a margin of at least 5 seconds.
+
 ## v0.3.2 (2026-11-28)
 
 Both templates depend on outbox v0.2.0. `-migrate-status` prints the queue's
