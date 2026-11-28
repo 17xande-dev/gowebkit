@@ -7,13 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -311,10 +309,8 @@ func (e *backupEvents) Write(p []byte) (int, error) {
 	}
 	if event.Msg == "database backup saved" {
 		e.saved++
-		if e.saved <= 2 {
+		if e.saved == 1 {
 			e.files <- event.File
-		}
-		if e.saved == 2 {
 			// Hold the real backup goroutine when it logs a completed copy.
 			<-e.release
 		}
@@ -336,7 +332,7 @@ func TestRunServerRunsAndJoinsBackups(t *testing.T) {
 	blocked := make(chan struct{})
 	release := sync.OnceFunc(func() { close(blocked) })
 	defer release()
-	events := &backupEvents{address: make(listeningAddress, 1), files: make(chan string, 2), release: blocked}
+	events := &backupEvents{address: make(listeningAddress, 1), files: make(chan string, 1), release: blocked}
 	opened := make(chan *db.DB, 1)
 	open := func(ctx context.Context, cfg config.DB) (*db.DB, error) {
 		d, err := db.Open(ctx, cfg)
@@ -371,14 +367,8 @@ func TestRunServerRunsAndJoinsBackups(t *testing.T) {
 		}
 		return ""
 	}
-	startup := nextBackup("startup")
-	// Backups are daily; removing the startup copy lets a tick write
-	// another one without depending on the wall clock changing days.
-	if err := os.Remove(startup); err != nil && !errors.Is(err, os.ErrNotExist) {
-		t.Fatal(err)
-	}
-	if info, err := os.Stat(nextBackup("periodic")); err != nil || info.Size() == 0 {
-		t.Fatalf("periodic backup was not written to disk: %v", err)
+	if info, err := os.Stat(nextBackup("startup")); err != nil || info.Size() == 0 {
+		t.Fatalf("startup backup was not written to disk: %v", err)
 	}
 
 	_, port, err := net.SplitHostPort(addr)
@@ -406,24 +396,5 @@ func TestRunServerRunsAndJoinsBackups(t *testing.T) {
 	}
 	if err := d.Ping(t.Context()); err == nil {
 		t.Fatal("database still open after server returned")
-	}
-}
-
-func TestBackupLoopRunsAtStartupAndOnTicks(t *testing.T) {
-	now := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
-	ticks := make(chan time.Time, 2)
-	want := []time.Time{now, now.Add(time.Hour), now.AddDate(0, 0, 1)}
-	ticks <- want[1]
-	ticks <- want[2]
-	close(ticks)
-	var logs bytes.Buffer
-	var got []time.Time
-	backup := func(_ context.Context, at time.Time) (string, bool, error) {
-		got = append(got, at)
-		return "", false, nil
-	}
-	runBackups(t.Context(), slog.New(slog.NewTextHandler(&logs, nil)), backup, now, ticks)
-	if !slices.Equal(got, want) || logs.Len() != 0 {
-		t.Fatalf("backup calls = %v, want %v; logs=%q", got, want, &logs)
 	}
 }

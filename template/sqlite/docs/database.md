@@ -45,9 +45,10 @@ The server checks at startup and hourly. It writes one `app-YYYY-MM-DD.db`
 copy per UTC day with `VACUUM INTO` and keeps the newest 14 by default. Set
 `BACKUP_KEEP=0` to turn off scheduled backups. These files are private to
 the app user and can be copied once complete.
-Backup writers use a separate lock next to the database
-(`app.db.backups.migrate-lock` by default) so an online copy does not hold
-the schema migration lock.
+Backup runs take a separate lock file next to the database
+(`app.db.backup-lock`; it is created once and never deleted) so an online
+copy does not hold the schema migration lock. A failed run is retried within
+the hour.
 
 For a separate pre-deploy snapshot when `sqlite3` is available, run
 `make backup-now` with `DB_PATH` pointing to the database. The target

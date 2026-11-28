@@ -2,8 +2,9 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"log/slog"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,7 +30,7 @@ func (d *DB) Backups(cfg config.DB) *BackupSet {
 	return &BackupSet{
 		db:       d,
 		settings: sqlitekit.Backups{Dir: cfg.BackupDir, Prefix: "app-", Layout: "2006-01-02", Keep: cfg.BackupKeep},
-		lockPath: cfg.DBPath + ".backups",
+		lockPath: cfg.DBPath + ".backup-lock",
 	}
 }
 
@@ -53,17 +54,30 @@ func (b *BackupSet) Newest() (time.Time, bool, error) {
 	return date, true, nil
 }
 
-// Run creates today's backup if absent and applies retention.
-func (b *BackupSet) Run(ctx context.Context, now time.Time) (_ string, _ bool, err error) {
-	// Two servers sharing the database can overlap on restart. The kit's
-	// backup routine requires one caller; use a separate lock so a large
-	// backup doesn't make a new server wait to apply migrations.
-	wait, cancel := context.WithTimeout(ctx, time.Minute)
-	release, err := sqlitekit.MigrationLock(wait, b.lockPath)
-	cancel()
-	if err != nil {
-		return "", false, fmt.Errorf("acquire backup lock: %w", err)
+// Start makes today's backup now, then re-checks on the kit's schedule (hourly,
+// retrying a failure within the hour) until the returned loop is stopped.
+// Stop the loop before closing the database: it joins any run in progress.
+// A nil set (backups disabled) starts nothing and returns a nil loop, whose
+// Stop is a no-op.
+//
+// ctx is the parent context the log calls close over, not the loop's own:
+// the loop's context is cancelled by Stop, and Report gets no context.
+func (b *BackupSet) Start(ctx context.Context, log *slog.Logger) (*sqlitekit.BackupLoop, error) {
+	if b == nil {
+		return nil, nil
 	}
-	defer func() { err = errors.Join(err, release()) }()
-	return b.settings.Run(ctx, b.db.DB, now)
+	return b.settings.Start(ctx, b.db.DB, sqlitekit.BackupSchedule{
+		// A separate lock from the migration lock, so a large copy never
+		// makes a new server wait to migrate. The kit refuses a name ending
+		// in the migration-lock suffix.
+		LockPath: b.lockPath,
+		Report: func(r sqlitekit.BackupResult) {
+			switch {
+			case r.Err != nil:
+				log.ErrorContext(ctx, "database backup failed", "error", r.Err, "retry_in", r.Next.String())
+			case r.Made:
+				log.InfoContext(ctx, "database backup saved", "file", filepath.Base(r.Path))
+			}
+		},
+	})
 }

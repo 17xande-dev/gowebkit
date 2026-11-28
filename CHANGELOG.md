@@ -9,11 +9,31 @@ Both templates give Kamal an explicit 30-second container stop window so
 HTTP draining, background work and database close can finish before Docker
 forces the container to exit.
 
+The SQLite template now uses the backup loop that sqlitekit v0.4.0 provides
+instead of its own timer loop. The loop makes today's backup at startup,
+re-checks hourly, retries a failure within the hour, bounds each run to five
+minutes and is joined by `Stop` before the database closes.
+
 To port this into an app generated from v0.3.2:
 
 1. Add top-level `stop_timeout: 30` to `config/deploy.yml`. If you increased
    `SHUTDOWN_TIMEOUT`, allow at least another 15 seconds for the worker,
    maintenance, database close and a margin of at least 5 seconds.
+2. SQLite only: run `go get github.com/17xande-dev/sqlitekit@v0.4.0` and
+   `go mod tidy`.
+3. SQLite only: in `internal/db/backup.go` delete `BackupSet.Run` and add
+   `BackupSet.Start(ctx, log)`, which calls the settings' `Start` with
+   `LockPath: cfg.DBPath + ".backup-lock"` and a `Report` that logs through
+   the parent `ctx` (Report receives none). Delete `runBackups` from
+   `cleanup.go`.
+4. SQLite only: in `main.go` replace the backup goroutine, ticker and join
+   with `loop, err := backups.Start(ctx, log)` and `defer loop.Stop()`
+   (a nil set returns a nil loop; Stop on it does nothing). Keep the defer
+   before the database closes.
+5. SQLite only: the old lock file `app.db.backups.migrate-lock` is refused by
+   the library and no longer used; delete it from the data volume. Update the
+   tests that called `Run` or `runBackups`: the loop has no tick seam, so test
+   the startup backup and that Stop is joined before the database closes.
 
 ## v0.3.2 (2026-11-28)
 

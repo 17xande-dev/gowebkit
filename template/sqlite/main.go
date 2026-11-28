@@ -179,21 +179,14 @@ func runServer(ctx context.Context, cfg config.Config, log *slog.Logger, open fu
 		<-sweepDone
 	}()
 
-	if backups != nil {
-		backupCtx, cancel := context.WithCancel(ctx)
-		ticker := time.NewTicker(maintenanceInterval)
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			runBackups(backupCtx, log, backups.Run, time.Now(), ticker.C)
-		}()
-		defer func() {
-			// Stop and join background work before closing its database pool.
-			cancel()
-			ticker.Stop()
-			<-done
-		}()
-	} else {
+	loop, err := backups.Start(ctx, log)
+	if err != nil {
+		return errors.Join(fmt.Errorf("start backups: %w", err), ln.Close())
+	}
+	// Stop joins any backup in progress; deferred here so it runs before the
+	// database pool (opened earlier, so closed later) is closed.
+	defer loop.Stop()
+	if backups == nil {
 		log.Info("the application makes no database backups", "note", db.BackupsNote)
 	}
 	queue.Start(ctx)

@@ -8,7 +8,7 @@ require (
 	github.com/17xande-dev/outbox v0.2.0
 	github.com/17xande-dev/password v0.1.0
 	github.com/17xande-dev/ratelimit v0.2.0
-	github.com/17xande-dev/sqlitekit v0.3.0
+	github.com/17xande-dev/sqlitekit v0.4.0
 	github.com/17xande-dev/websec v0.5.1
 	github.com/pressly/goose/v3 v3.30.1
 	modernc.org/sqlite v1.63.0

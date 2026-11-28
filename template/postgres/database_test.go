@@ -13,7 +13,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -479,23 +478,4 @@ func (l *lockedLog) String() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return strings.Join(l.lines, "")
-}
-
-func TestBackupLoopRunsAtStartupAndOnTicks(t *testing.T) {
-	now := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
-	ticks := make(chan time.Time, 2)
-	want := []time.Time{now, now.Add(time.Hour), now.AddDate(0, 0, 1)}
-	ticks <- want[1]
-	ticks <- want[2]
-	close(ticks)
-	var logs bytes.Buffer
-	var got []time.Time
-	backup := func(_ context.Context, at time.Time) (string, bool, error) {
-		got = append(got, at)
-		return "", false, nil
-	}
-	runBackups(t.Context(), slog.New(slog.NewTextHandler(&logs, nil)), backup, now, ticks)
-	if !slices.Equal(got, want) || logs.Len() != 0 {
-		t.Fatalf("backup calls = %v, want %v; logs=%q", got, want, &logs)
-	}
 }

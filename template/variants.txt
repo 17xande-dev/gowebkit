@@ -16,6 +16,7 @@ internal/db/db_test.go
 internal/db/status.go
 internal/db/migrations/
 sqlite-only: internal/db/backup_test.go
+sqlite-only: internal/db/backup_lock_unix_test.go
 internal/db/rollback_test.go
 sqlite-only: internal/db/status_test.go
 postgres-only: internal/db/export_test.go
