@@ -4,3 +4,6 @@
 identity	19aac9d17ea46afb739a8a041d65326f0143cbadfbbad99b775fa2ded3eca364	"maintainer"
 # An older published identity on tagged history; remediation by rewrite would break consumers.
 identity	fe505aaedd204e73651e64de346bd66d2569d89e7242925a6ffaec2f276d9ead	"older published history"
+# Public ranges written as CIDR halves in an example (the prefix is not an address of a host).
+file	README.md	"128.0.0.0"
+commit	296dec0965068598d06f4072725c2e0a76b8d2af	"128.0.0.0"
