@@ -30,10 +30,25 @@ To port this into an app generated from v0.3.2:
    with `loop, err := backups.Start(ctx, log)` and `defer loop.Stop()`
    (a nil set returns a nil loop; Stop on it does nothing). Keep the defer
    before the database closes.
-5. SQLite only: the old lock file `app.db.backups.migrate-lock` is refused by
-   the library and no longer used; delete it from the data volume. Update the
-   tests that called `Run` or `runBackups`: the loop has no tick seam, so test
-   the startup backup and that Stop is joined before the database closes.
+5. SQLite only: deploy when today's backup already exists (the admin page
+   shows its date), so not in the first hour after UTC midnight. During that
+   one rolling deploy the old container still uses the old lock file and the
+   new one uses `app.db.backup-lock`, so they do not take turns. Once the
+   deploy has finished, delete the old `app.db.backups.migrate-lock` from the
+   data volume (not before: the old container recreates it if it runs a
+   backup first). The library refuses that name as a `LockPath`.
+6. SQLite only: update the tests that called `Run` or `runBackups`: the loop
+   has no tick seam, so test the startup backup and that Stop is joined
+   before the database closes. Remove the `path/filepath` import from
+   `cleanup.go` if nothing else there uses it.
+
+PostgreSQL apps need only step 1: the PostgreSQL template makes no
+application backups, and its only change is a no-op loop type that keeps the
+shared startup code compiling.
+
+With backups turned on, the SQLite template now refuses to start on a
+platform without `flock`, because the library rejects a lock path there.
+Linux and macOS are unaffected. Set `BACKUP_KEEP=0` to run without backups.
 
 ## v0.3.2 (2026-11-28)
 

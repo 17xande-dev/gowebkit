@@ -35,11 +35,13 @@ func TestDeployConfigStopTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const queueStop = 5 * time.Second // outbox.Stop's per-call wait
+	const queueStop = 5 * time.Second     // outbox.Stop's per-call wait
+	const joinsAndClose = 5 * time.Second // backup and sweep joins, then the database close
 	const margin = 5 * time.Second
-	if cfg.ShutdownTimeout > stopTimeout-queueStop-margin {
-		t.Fatalf("stop_timeout %v does not cover HTTP drain %v, queue stop %v and margin %v",
-			stopTimeout, cfg.ShutdownTimeout, queueStop, margin)
+	// The documented rule: SHUTDOWN_TIMEOUT + 15 s <= stop_timeout.
+	if cfg.ShutdownTimeout+queueStop+joinsAndClose+margin > stopTimeout {
+		t.Fatalf("stop_timeout %v does not cover HTTP drain %v, queue stop %v, joins and close %v and margin %v",
+			stopTimeout, cfg.ShutdownTimeout, queueStop, joinsAndClose, margin)
 	}
 }
 
