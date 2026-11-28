@@ -15,7 +15,9 @@ or the text of a private rule.
   host are built-in exceptions: `0.0.0.0`, loopback (`127.0.0.0/8`), private
   ranges (RFC 1918), link-local (`169.254.0.0/16`) and the three RFC 5737
   documentation blocks. The address part of a CIDR prefix such as `10.0.0.0/8`
-  is judged the same way. Public addresses and other mailboxes are still flagged.
+  is judged the same way. An octet written with a leading zero (`127.000.0.1`)
+is read both as decimal and as octal, and the address is exempt only if every
+reading is reserved. Public addresses and other mailboxes are still flagged.
   This repository is public, so no rule in the source may
   name an organisation, person, host, application, place or provider.
 - **Private rules** come from a file kept outside the repository: one

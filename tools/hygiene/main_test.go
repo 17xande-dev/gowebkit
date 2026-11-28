@@ -301,6 +301,7 @@ func TestReservedExamples(t *testing.T) {
 		"documentation 1":          "hop 192.0.2.7",
 		"documentation 2":          "hop 198.51.100.7",
 		"documentation 3":          "hop 203.0.113.7",
+		"loopback zero-padded":     "origin 127.000.0.1 and 127.0.00.001",
 		"cidr private":             "allow 10.0.0.0/8 and 172.16.0.0/12 and 192.168.0.0/16",
 		"cidr loopback and link":   "allow 127.0.0.0/8 and 169.254.0.0/16",
 		"cidr documentation":       "allow 192.0.2.0/24 and 198.51.100.0/24 and 203.0.113.0/24",
@@ -320,6 +321,8 @@ func TestReservedExemptionsStopShort(t *testing.T) {
 	cases := map[string]string{
 		"public address":                       "host " + strayIP,
 		"public cidr":                          "allow 8.8." + "0.0/16",
+		"zero-padded public address":           "host 008.008." + "004.004",
+		"padded private, public as octal":      "host 010." + "0.0.1",
 		"just outside 172.16/12":               "hop 172.32." + "0.1",
 		"just outside link-local":              "hop 169.253." + "0.1",
 		"mailbox on a real domain":             "mail person@" + strayDomain,

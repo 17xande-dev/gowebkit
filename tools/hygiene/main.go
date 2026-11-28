@@ -563,14 +563,62 @@ func allowedExample(pattern, match string) bool {
 		return domain == "example.com" || strings.HasSuffix(domain, ".example") ||
 			strings.HasSuffix(domain, ".test") || strings.HasSuffix(domain, ".invalid")
 	case ipv4Pattern:
-		ip, err := netip.ParseAddr(match)
-		if err != nil {
+		ips := ipv4Readings(match)
+		if len(ips) == 0 {
 			return false
 		}
-		return reservedAddr(ip)
+		for _, ip := range ips {
+			if !reservedAddr(ip) {
+				return false
+			}
+		}
+		return true
 	default:
 		return false
 	}
+}
+
+// ipv4Readings returns every address a dotted quad can mean. A canonical quad
+// has one reading. An octet written with a leading zero is read as decimal by
+// some parsers and as octal by others, so each such octet doubles the readings
+// (an octet with an 8 or 9 can only be decimal). A quad is exempt only if all
+// its readings are reserved, so a padded spelling of a public address, or one
+// that an octal parser would send to a public host, is still flagged.
+func ipv4Readings(match string) []netip.Addr {
+	parts := strings.Split(match, ".")
+	if len(parts) != 4 {
+		return nil
+	}
+	readings := [][4]byte{{}}
+	for i, p := range parts {
+		var values []uint64
+		for _, base := range []int{10, 8} {
+			if base == 8 && (len(p) < 2 || p[0] != '0') {
+				continue
+			}
+			v, err := strconv.ParseUint(p, base, 16)
+			if err != nil || v > 255 {
+				if base == 10 {
+					return nil
+				}
+				continue
+			}
+			values = append(values, v)
+		}
+		var next [][4]byte
+		for _, r := range readings {
+			for _, v := range values {
+				r[i] = byte(v)
+				next = append(next, r)
+			}
+		}
+		readings = next
+	}
+	out := make([]netip.Addr, 0, len(readings))
+	for _, r := range readings {
+		out = append(out, netip.AddrFrom4(r))
+	}
+	return out
 }
 
 // reservedAddr reports whether an IPv4 address cannot name a public host:
